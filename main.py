@@ -16,11 +16,11 @@ SCREENER = "forex"
 INTERVAL = Interval.INTERVAL_1_MINUTE 
 TZ = pytz.timezone('Asia/Dhaka')
 
-# --- STATE & HISTORY ---
+# --- STATE ---
 bot_running = True
-signals_history = [] 
+signals_history = []
 
-# --- WEB PANEL (আপনার পছন্দের ডিজাইন) ---
+# --- WEB PANEL (আপনার ছবির ডার্ক ডিজাইন) ---
 def get_html():
     status_text = "🟢 RUNNING" if bot_running else "🔴 STOPPED"
     status_color = "#28a745" if bot_running else "#dc3545"
@@ -57,7 +57,7 @@ def send_report():
     if not signals_history:
         msg = "📊 No signals yet."
     else:
-        report = "✨ ···🔥 *DARK FINAL RESULTS* 🔥··· ✨\n━━━━━━━━━━━━━━━━━━━━\n"
+        report = "✨ ···🔥 *DARK RAYHAN RESULTS* 🔥··· ✨\n━━━━━━━━━━━━━━━━━━━━\n"
         for s in signals_history[-10:]:
             report += f"❑ {s['time']} - {s['pair']} - {s['action']} ✅\n"
         report += "━━━━━━━━━━━━━━━━━━━━"
@@ -74,16 +74,15 @@ class ControlHandler(BaseHTTPRequestHandler):
         self.wfile.write(get_html().encode('utf-8'))
     def log_message(self, format, *args): return
 
-# --- SIGNAL ENGINE (আপনার অরিজিনাল লজিক) ---
+# --- SIGNAL ENGINE (আপনার অরিজিনাল লজিক ১:১ রাখা হয়েছে) ---
 def signal_loop():
     last_signals = {pair: "" for pair in PAIRS}
-    print("Dark Rayhan Sniper Bot Started...")
+    print("Dark Rayhan Sniper Bot is Online...")
     
     while True:
         if bot_running:
             now = datetime.datetime.now(TZ)
-            
-            # আপনার কোডের ৪৮তম সেকেন্ডের লজিক
+            # ঠিক ৪৮ সেকেন্ডে স্ক্যান শুরু হবে
             if now.second == 48:
                 for pair in PAIRS:
                     try:
@@ -91,16 +90,15 @@ def signal_loop():
                         analysis = handler.get_analysis()
                         rec = analysis.summary['RECOMMENDATION']
                         
-                        # শুধুমাত্র স্ট্রং সিগন্যাল ফিল্টার (আপনার কোডের মতো)
+                        # আপনার অরিজিনাল লজিক: শুধুমাত্র STRONG থাকলেই সিগন্যাল
                         if rec and ("STRONG" in rec) and rec != last_signals[pair]:
                             action = "BUY 📈" if "BUY" in rec else "SELL 📉"
                             curr_time = now.strftime("%H:%M:%S")
                             trade_time = (now + datetime.timedelta(seconds=12)).strftime("%H:%M:00")
                             
-                            # রেজাল্ট লিস্টে সেভ করা
                             signals_history.append({'time': now.strftime("%H:%M"), 'pair': pair, 'action': action})
                             
-                            msg = (f"🚀 *DARK SNIPER SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n"
+                            msg = (f"🚀 *DARK RAYHAN SNIPER SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n"
                                    f"💎 *Pair:* {pair}\n📊 *Action:* {action}\n"
                                    f"⏰ *Time:* {curr_time}\n"
                                    f"🎯 *Trade:* {trade_time}\n━━━━━━━━━━━━━━━━━━━━")
@@ -108,13 +106,13 @@ def signal_loop():
                             requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
                             
                             last_signals[pair] = rec
-                            break # ১১টি একসাথে আসা বন্ধ করবে এবং ওই মিনিটের কাজ শেষ করবে
-                    except: continue
-                
-                time.sleep(10) # ডাবল সিগন্যাল আটকানো
+                            break # ১১টি একসাথে আসা বন্ধ করবে
+                    except Exception as e:
+                        print(f"Error fetching {pair}: {e}")
+                        continue
+                time.sleep(10)
         time.sleep(1)
 
-# --- RUNNER ---
 port = int(os.environ.get("PORT", 10000))
 threading.Thread(target=lambda: HTTPServer(('0.0.0.0', port), ControlHandler).serve_forever(), daemon=True).start()
 signal_loop()
