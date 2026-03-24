@@ -1,4 +1,4 @@
-SNIPER time
+import time
 import datetime
 import pytz
 import requests
@@ -20,7 +20,7 @@ TZ = pytz.timezone('Asia/Dhaka')
 bot_running = True
 signals_history = [] 
 
-# --- WEB PANEL (Original Style) ---
+# --- WEB PANEL (আপনার পছন্দের ডিজাইন) ---
 def get_html():
     status_text = "🟢 RUNNING" if bot_running else "🔴 STOPPED"
     status_color = "#28a745" if bot_running else "#dc3545"
@@ -53,20 +53,16 @@ def get_html():
     </html>
     """
 
-# --- রেজাল্ট রিপোর্ট জেনারেটর ---
 def send_report():
     if not signals_history:
         msg = "📊 No signals yet."
     else:
-        report = "✨ ···🔥 *DARK RESULTS* 🔥··· ✨\n━━━━━━━━━━━━━━━━━━━━\n"
-        # শেষ ১০টি সিগন্যাল দেখাবে
+        report = "✨ ···🔥 *DARK FINAL RESULTS* 🔥··· ✨\n━━━━━━━━━━━━━━━━━━━━\n"
         for s in signals_history[-10:]:
             report += f"❑ {s['time']} - {s['pair']} - {s['action']} ✅\n"
         report += "━━━━━━━━━━━━━━━━━━━━"
         msg = report
-    
-    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
-                  data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
 
 class ControlHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -74,21 +70,20 @@ class ControlHandler(BaseHTTPRequestHandler):
         if self.path == "/on": bot_running = True
         elif self.path == "/off": bot_running = False
         elif self.path == "/results": send_report()
-        
         self.send_response(200); self.send_header("Content-type", "text/html; charset=utf-8"); self.end_headers()
         self.wfile.write(get_html().encode('utf-8'))
     def log_message(self, format, *args): return
 
-# --- SIGNAL ENGINE (আপনার হুবহু অরিজিনাল লজিক) ---
+# --- SIGNAL ENGINE (আপনার অরিজিনাল লজিক) ---
 def signal_loop():
     last_signals = {pair: "" for pair in PAIRS}
-    print("Dark Rayhan Sniper Bot is Active...")
+    print("Dark Rayhan Sniper Bot Started...")
     
     while True:
         if bot_running:
             now = datetime.datetime.now(TZ)
             
-            # আপনার কোডের লজিক: ৪৮ নম্বর সেকেন্ডে চেক
+            # আপনার কোডের ৪৮তম সেকেন্ডের লজিক
             if now.second == 48:
                 for pair in PAIRS:
                     try:
@@ -96,31 +91,27 @@ def signal_loop():
                         analysis = handler.get_analysis()
                         rec = analysis.summary['RECOMMENDATION']
                         
-                        # আপনার অরিজিনাল সিগন্যাল লজিক (১০০% সেম)
+                        # শুধুমাত্র স্ট্রং সিগন্যাল ফিল্টার (আপনার কোডের মতো)
                         if rec and ("STRONG" in rec) and rec != last_signals[pair]:
                             action = "BUY 📈" if "BUY" in rec else "SELL 📉"
                             curr_time = now.strftime("%H:%M:%S")
                             trade_time = (now + datetime.timedelta(seconds=12)).strftime("%H:%M:00")
                             
-                            # হিস্ট্রিতে সেভ করা (রেজাল্ট কার্ডের জন্য)
+                            # রেজাল্ট লিস্টে সেভ করা
                             signals_history.append({'time': now.strftime("%H:%M"), 'pair': pair, 'action': action})
                             
-                            msg = (f"🚀 *DARK SNIPER SIGNAL*\n"
-                                   f"━━━━━━━━━━━━━━━━━━━━\n"
-                                   f"💎 *Pair:* {pair}\n"
-                                   f"📊 *Action:* {action}\n"
+                            msg = (f"🚀 *DARK SNIPER SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n"
+                                   f"💎 *Pair:* {pair}\n📊 *Action:* {action}\n"
                                    f"⏰ *Time:* {curr_time}\n"
-                                   f"🎯 *Trade:* {trade_time}\n"
-                                   f"━━━━━━━━━━━━━━━━━━━━")
+                                   f"🎯 *Trade:* {trade_time}\n━━━━━━━━━━━━━━━━━━━━")
                             
-                            requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
-                                          data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+                            requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
                             
                             last_signals[pair] = rec
-                            break # ১১টি সিগন্যাল একসাথে আসা বন্ধ করবে
+                            break # ১১টি একসাথে আসা বন্ধ করবে এবং ওই মিনিটের কাজ শেষ করবে
                     except: continue
                 
-                time.sleep(10) # একই মিনিটে ডাবল সিগন্যাল আটকানো
+                time.sleep(10) # ডাবল সিগন্যাল আটকানো
         time.sleep(1)
 
 # --- RUNNER ---
