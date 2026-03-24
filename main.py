@@ -1,4 +1,4 @@
-import time
+SNIPER time
 import datetime
 import pytz
 import requests
@@ -18,9 +18,9 @@ TZ = pytz.timezone('Asia/Dhaka')
 
 # --- STATE & HISTORY ---
 bot_running = True
-signals_history = [] # রেজাল্ট রিপোর্ট জেনারেট করার জন্য
+signals_history = [] 
 
-# --- WEB PANEL (আপনার ছবির মতো ৩-বাটন ডিজাইন) ---
+# --- WEB PANEL (Original Style) ---
 def get_html():
     status_text = "🟢 RUNNING" if bot_running else "🔴 STOPPED"
     status_color = "#28a745" if bot_running else "#dc3545"
@@ -53,15 +53,16 @@ def get_html():
     </html>
     """
 
-# --- রেজাল্ট রিপোর্ট সিস্টেম ---
+# --- রেজাল্ট রিপোর্ট জেনারেটর ---
 def send_report():
     if not signals_history:
-        msg = "📊 No signals generated yet."
+        msg = "📊 No signals yet."
     else:
         report = "✨ ···🔥 *DARK RESULTS* 🔥··· ✨\n━━━━━━━━━━━━━━━━━━━━\n"
-        for s in signals_history[-15:]:
+        # শেষ ১০টি সিগন্যাল দেখাবে
+        for s in signals_history[-10:]:
             report += f"❑ {s['time']} - {s['pair']} - {s['action']} ✅\n"
-        report += f"━━━━━━━━━━━━━━━━━━━━\n🎯 *Accuracy Verified by Sniper Engine*"
+        report += "━━━━━━━━━━━━━━━━━━━━"
         msg = report
     
     requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
@@ -87,7 +88,7 @@ def signal_loop():
         if bot_running:
             now = datetime.datetime.now(TZ)
             
-            # আপনার কোডের লজিক: ৪৮তম সেকেন্ডে চেক
+            # আপনার কোডের লজিক: ৪৮ নম্বর সেকেন্ডে চেক
             if now.second == 48:
                 for pair in PAIRS:
                     try:
@@ -95,13 +96,13 @@ def signal_loop():
                         analysis = handler.get_analysis()
                         rec = analysis.summary['RECOMMENDATION']
                         
-                        # শুধুমাত্র STRONG সিগন্যাল ফিল্টার (আপনার কোডের মতো)
+                        # আপনার অরিজিনাল সিগন্যাল লজিক (১০০% সেম)
                         if rec and ("STRONG" in rec) and rec != last_signals[pair]:
                             action = "BUY 📈" if "BUY" in rec else "SELL 📉"
                             curr_time = now.strftime("%H:%M:%S")
                             trade_time = (now + datetime.timedelta(seconds=12)).strftime("%H:%M:00")
                             
-                            # হিস্ট্রিতে সেভ করা (রেজাল্ট বাটনের জন্য)
+                            # হিস্ট্রিতে সেভ করা (রেজাল্ট কার্ডের জন্য)
                             signals_history.append({'time': now.strftime("%H:%M"), 'pair': pair, 'action': action})
                             
                             msg = (f"🚀 *DARK SNIPER SIGNAL*\n"
@@ -116,10 +117,10 @@ def signal_loop():
                                           data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
                             
                             last_signals[pair] = rec
-                            break # ১১টি একসাথে না পাঠিয়ে কেবল ১টি পাঠানোর জন্য
+                            break # ১১টি সিগন্যাল একসাথে আসা বন্ধ করবে
                     except: continue
                 
-                time.sleep(10)
+                time.sleep(10) # একই মিনিটে ডাবল সিগন্যাল আটকানো
         time.sleep(1)
 
 # --- RUNNER ---
