@@ -15,7 +15,7 @@ EXCHANGE = "FX_IDC"
 SCREENER = "forex"
 INTERVAL = Interval.INTERVAL_1_MINUTE 
 TZ = pytz.timezone('Asia/Dhaka')
-OWNER = "DARK-X-RAYHAN"
+OWNER_NAME = "DARK-X-RAYHAN" # আপনার নাম এখানে সেট করা হয়েছে
 
 # --- GLOBAL STATE ---
 bot_running = False
@@ -27,72 +27,85 @@ last_signal_time = ""
 def send_telegram(text):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}
-    try: requests.post(url, data=payload)
-    except: pass
+    try:
+        requests.post(url, data=payload)
+    except:
+        pass
 
-# --- WIN/LOSS & MARTINGALE LOGIC ---
+# --- WIN/LOSS & MTG ENGINE ---
 def check_full_result(pair, action, time_id):
     global stats
-    time.sleep(65) # ১ম ক্যান্ডেল শেষ হওয়ার ১০ সেকেন্ড পর
+    time.sleep(65)
     try:
         h = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL)
-        rec1 = h.get_analysis().summary['RECOMMENDATION']
+        rec = h.get_analysis().summary['RECOMMENDATION']
+        is_win = ("CALL" in action and "BUY" in rec) or ("PUT" in action and "SELL" in rec)
         
-        # আপনার দেওয়া লজিক অনুযায়ী উইন চেক
-        is_direct_win = ("CALL" in action and "BUY" in rec1) or ("PUT" in action and "SELL" in rec1)
-        
-        if is_direct_win:
+        if is_win:
             stats["win"] += 1
-            msg = (f"✅ *DIRECT WIN ALERT* ✅\n━━━━━━━━━━━━━━━━━━━━\n"
-                   f"💎 *Pair:* {pair}\n💰 *Result:* First Candle Profit\n"
-                   f"━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER}")
-            send_telegram(msg)
+            send_telegram(f"✅ *DIRECT WIN* ✅\n━━━━━━━━━━━━━━━━━━━━\n💎 *Pair:* {pair}\n💰 *Result:* Profit\n━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
             update_history(time_id, "✅")
             return
 
-        # ১ম টা লস হলে M1 এলার্ট
-        m1_alert = (f"⚠️ *M1 ALERT (Next Candle)* ⚠️\n━━━━━━━━━━━━━━━━━━━━\n"
-                    f"💎 *Pair:* {pair}\n🔥 *Next:* 1-Min Martingale\n"
-                    f"📈 *Direction:* {action}\n━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER}")
-        send_telegram(m1_alert)
+        # M1 Alert if 1st candle loses
+        send_telegram(f"⚠️ *M1 ALERT* ⚠️\n━━━━━━━━━━━━━━━━━━━━\n💎 *Pair:* {pair}\n🔥 *Next:* M1 {action}\n━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
         
-        time.sleep(60) # M1 ক্যান্ডেল শেষ হওয়া পর্যন্ত অপেক্ষা
+        time.sleep(60)
         rec2 = h.get_analysis().summary['RECOMMENDATION']
-        is_m1_win = ("CALL" in action and "BUY" in rec2) or ("PUT" in action and "SELL" in rec2)
-        
-        if is_m1_win:
+        if ("CALL" in action and "BUY" in rec2) or ("PUT" in action and "SELL" in rec2):
             stats["win"] += 1
-            msg = (f"✅ *MTG-1 WIN ALERT* ✅\n━━━━━━━━━━━━━━━━━━━━\n"
-                   f"💎 *Pair:* {pair}\n💰 *Result:* M1 Profit\n"
-                   f"━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER}")
-            send_telegram(msg)
+            send_telegram(f"✅ *MTG-1 WIN* ✅\n━━━━━━━━━━━━━━━━━━━━\n💎 *Pair:* {pair}\n💰 *Result:* M1 Profit\n━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
             update_history(time_id, "✅¹")
         else:
             stats["loss"] += 1
-            msg = (f"💀 *TOTAL LOSS ALERT* 💀\n━━━━━━━━━━━━━━━━━━━━\n"
-                   f"💎 *Pair:* {pair}\n❌ *Result:* Double Loss\n"
-                   f"━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER}")
-            send_telegram(msg)
+            send_telegram(f"💀 *TOTAL LOSS* 💀\n━━━━━━━━━━━━━━━━━━━━\n💎 *Pair:* {pair}\n❌ *Result:* Loss\n━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
             update_history(time_id, "❌")
-    except: pass
+    except:
+        pass
 
 def update_history(t_id, res):
     for s in signals_history:
-        if s['time'] == t_id: s['result'] = res; break
+        if s['time'] == t_id:
+            s['result'] = res
+            break
 
-# --- WEB PANEL ---
+# --- WEB PANEL DESIGN (Fixing Encoding & Style) ---
 def get_html():
-    status = "🟢 RUNNING" if bot_running else "🔴 STOPPED"
-    color = "#28a745" if bot_running else "#dc3545"
+    status_icon = "🔴" if not bot_running else "🟢"
+    status_text = "STOPPED" if not bot_running else "RUNNING"
+    status_color = "#dc3545" if not bot_running else "#28a745"
+    
     return f"""
-    <html><body style="background:#0a0a0a;color:white;text-align:center;font-family:sans-serif;">
-    <div style="margin-top:50px;border:1px solid #333;display:inline-block;padding:30px;border-radius:15px;background:#111;width:300px;">
-    <h1>SNIPER V3 PRO</h1><p style="color:#555;">OWNER: {OWNER}</p>
-    <h2 style="color:{color};border:1px solid {color};padding:10px;border-radius:10px;">{status}</h2>
-    <a href="/on" style="display:block;padding:15px;margin:10px;background:#28a745;color:white;text-decoration:none;border-radius:50px;font-weight:bold;">START</a>
-    <a href="/off" style="display:block;padding:15px;margin:10px;background:#dc3545;color:white;text-decoration:none;border-radius:50px;font-weight:bold;">STOP</a>
-    <a href="/results" style="display:block;padding:15px;margin:10px;background:#007bff;color:white;text-decoration:none;border-radius:50px;font-weight:bold;">REPORT</a>
-    </div></body></html>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Sniper Bot V3</title>
+        <style>
+            body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #000; color: #fff; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }}
+            .card {{ background: #111; padding: 40px; border-radius: 25px; border: 1px solid #222; width: 320px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.8); }}
+            h1 {{ font-size: 26px; margin-bottom: 5px; color: #fff; text-transform: uppercase; }}
+            .owner {{ color: #555; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 30px; display: block; }}
+            .status-box {{ font-size: 18px; font-weight: bold; border: 2px solid {status_color}; padding: 15px; border-radius: 12px; color: {status_color}; margin-bottom: 30px; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; gap: 10px; }}
+            .btn {{ display: block; width: 100%; padding: 16px; margin: 15px 0; border-radius: 50px; font-size: 14px; font-weight: bold; text-decoration: none; color: white; transition: 0.3s; border: none; cursor: pointer; text-transform: uppercase; }}
+            .on {{ background: #28a745; }} .off {{ background: #dc3545; }} .res {{ background: #007bff; }}
+            .btn:active {{ transform: scale(0.98); }}
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>SNIPER V3 PRO</h1>
+            <span class="owner">OWNER: {OWNER_NAME}</span>
+            <div class="status-box">
+                <span>{status_icon}</span> {status_text}
+            </div>
+            <a href="/on" class="btn on">START SNIPING</a>
+            <a href="/off" class="btn off">STOP BOT</a>
+            <a href="/results" class="btn res">SEND REPORT</a>
+        </div>
+    </body>
+    </html>
     """
 
 class ControlHandler(BaseHTTPRequestHandler):
@@ -101,21 +114,25 @@ class ControlHandler(BaseHTTPRequestHandler):
         if self.path == "/on": bot_running = True
         elif self.path == "/off": bot_running = False
         elif self.path == "/results": send_final_report()
-        self.send_response(200); self.send_header("Content-type", "text/html"); self.end_headers()
-        self.wfile.write(get_html().encode())
+        
+        self.send_response(200)
+        self.send_header("Content-type", "text/html; charset=utf-8") # এনকোডিং ফিক্স
+        self.end_headers()
+        self.wfile.write(get_html().encode('utf-8'))
     def log_message(self, format, *args): return
 
 def send_final_report():
-    if not signals_history: send_telegram("📊 No signals captured.")
+    if not signals_history:
+        send_telegram("📊 No signals captured yet.")
     else:
         acc = (stats["win"] / stats["total"] * 100) if stats["total"] > 0 else 0
-        report = f"💠 *FINAL RESULTS* 💠\n━━━━━━━━━━━━━━━━━━━━\n"
-        for s in signals_history[-15:]:
-            report += f"❑ {s['time']} - {s['pair']} - {s['action']} {s.get('result', '⌛')}\n"
-        report += f"━━━━━━━━━━━━━━━━━━━━\n🔮 Total: {stats['total']} | Win: {stats['win']}\n💀 Loss: {stats['loss']} | Acc: {acc:.0f}%\n━━━━━━━━━━━━━━━━━━━━\n👤 Owner: {OWNER}"
+        report = f"💠 *FINAL SNIPER REPORT* 💠\n━━━━━━━━━━━━━━━━━━━━\n"
+        for s in signals_history[-12:]:
+            report += f"❑ {s['time']} | {s['pair']} | {s['action']} {s.get('result', '⌛')}\n"
+        report += f"━━━━━━━━━━━━━━━━━━━━\n🎯 Accuracy: {acc:.1f}%\n👤 Owner: {OWNER_NAME}"
         send_telegram(report)
 
-# --- MAIN LOOP ---
+# --- SIGNAL ENGINE ---
 def signal_loop():
     global last_signal_time, stats
     while True:
@@ -123,13 +140,12 @@ def signal_loop():
             now = datetime.datetime.now(TZ)
             min_id = now.strftime("%H:%M")
             if now.second == 48 and min_id != last_signal_time:
-                # আপনার দেওয়া কোড থেকে লজিক পার্ট নেওয়া হয়েছে
                 for pair in PAIRS:
                     try:
                         h = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL)
                         score = h.get_analysis().indicators['Recommend.All']
                         
-                        # আপনার দেওয়া লজিক: ০.৫ এর বেশি হলে কল, -০.৫ এর নিচে পুট
+                        # আপনার দেওয়া লজিক অনুযায়ী সিগন্যাল জেনারেট
                         if score >= 0.5 or score <= -0.5:
                             action = "CALL 📈" if score > 0 else "PUT 📉"
                             stats["total"] += 1
@@ -140,14 +156,14 @@ def signal_loop():
                                    f"💎 *Pair:* {pair}\n📊 *Action:* {action}\n"
                                    f"⏰ *Time:* {now.strftime('%H:%M:%S')}\n"
                                    f"🎯 *Trade:* {trade_t}\n"
-                                   f"🚀 *Accuracy:* 98.5%\n━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER}")
+                                   f"🚀 *Accuracy:* 98.5%\n━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
                             
                             send_telegram(msg)
                             last_signal_time = min_id
-                            # রেজাল্ট চেক করার জন্য আলাদা থ্রেড
                             threading.Thread(target=check_full_result, args=(pair, action, min_id)).start()
                             break
-                    except: continue
+                    except:
+                        continue
         time.sleep(1)
 
 if __name__ == "__main__":
