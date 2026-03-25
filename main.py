@@ -24,65 +24,53 @@ sent_signals_cache = set()
 stats = {"win": 0, "mtg": 0, "loss": 0}
 current_pair_data = "None"
 current_time_data = "None"
-session_history = [] 
 last_signal_timestamp = 0 
 
-# --- PROFESSIONAL "SIGNAL LOOK" SS SENDING ---
+# --- PC STYLE DESKTOP SCREENSHOT ---
 def send_signal_with_ss(text, pair):
-    # আপনার ২য় ছবির মতো 'Pro' লুক দেওয়ার জন্য চার্ট স্টাইল মডিফাই করা হয়েছে
-    # এটি চার্টের গ্রিডলাইন সম্পূর্ণ মুছে ফেলবে এবং ক্যান্ডেলের কনট্রাস্ট বাড়িয়ে দিবে
+    # PC বা ডেক্সটপ মোডের মতো ওয়াইড ভিউ পাওয়ার জন্য উইজেট ইউআরএল
     chart_url = (f"https://s.tradingview.com/widgetembed/?symbol={EXCHANGE}:{pair}"
                  f"&interval=1&theme=dark&style=1&timezone=Asia%2FDhaka"
                  f"&hide_top_toolbar=true&hide_legend=true&withdateranges=false"
-                 f"&hide_side_toolbar=true&save_image=false&backgroundColor=%23000000"
-                 f"&gridColor=%23000000") # গ্রিড কালার ব্ল্যাক করে একদম ক্লিন করা হয়েছে
+                 f"&hide_side_toolbar=true&save_image=false&backgroundColor=%23000000")
 
-    # হাই-রেজোলিউশন স্ক্রিনশট জেনারেটর
-    photo_url = f"https://image.thum.io/get/width/1200/crop/800/noanimate/refresh/1/{chart_url}"
+    # ডেক্সটপ সাইজ (1280x720) নিশ্চিত করতে স্ক্রিনশট প্যারামিটার
+    # refresh প্যারামিটারটি প্রতিবার নতুন ডাটা নিশ্চিত করবে
+    photo_url = f"https://image.thum.io/get/width/1280/crop/720/noanimate/refresh/{int(time.time())}/{chart_url}"
     
     try:
         url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
-        # ক্যাপশন মোডে ফটো পাঠানো হচ্ছে
-        r = requests.post(url, data={"chat_id": CHAT_ID, "photo": photo_url, "caption": text, "parse_mode": "Markdown"}, timeout=30)
-        if r.status_code != 200:
-            requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
+        # ক্যাপশন হিসেবে টেক্সট পাঠানো হচ্ছে
+        requests.post(url, data={"chat_id": CHAT_ID, "photo": photo_url, "caption": text, "parse_mode": "Markdown"}, timeout=15)
     except:
         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
 
-# --- UI PANEL (Design from 1000005268.jpg) ---
+# --- UI PANEL ---
 def get_html():
     status_text = "RUNNING" if bot_running else "STOPPED"
     status_color = "#28a745" if bot_running else "#dc3545"
     return f"""
     <!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body {{ background: #000; color: #fff; text-align: center; font-family: sans-serif; padding: 15px; }}
-        .card {{ background: #111; padding: 25px; border-radius: 20px; border: 1px solid #222; max-width: 320px; margin: auto; }}
-        .owner {{ color: #888; font-size: 11px; margin-bottom: 20px; text-transform: uppercase; }}
+        body {{ background: #00; color: #fff; text-align: center; font-family: sans-serif; padding: 15px; }}
+        .card {{ background: #0f0f0f; padding: 25px; border-radius: 20px; border: 1px solid #222; max-width: 320px; margin: auto; }}
         .btn {{ display: block; padding: 15px; margin: 10px 0; border-radius: 12px; text-decoration: none; color: #fff; font-weight: bold; text-transform: uppercase; font-size: 13px; border: none; cursor: pointer; }}
         .start {{ background: #28a745; }} .stop {{ background: #dc3545; }}
         .win {{ background: #00c853; }} .mtg {{ background: #ffd600; color: #000; }} .loss {{ background: #d50000; }}
         .final {{ background: #2979ff; }}
-        .info-box {{ background: #080808; border-left: 5px solid #00ff00; border-radius: 8px; padding: 12px; margin: 15px 0; text-align: left; font-size: 13px; color: #00ff00; font-family: monospace; border: 1px solid #333; }}
+        .info-box {{ background: #080808; border-left: 5px solid #00ff00; border-radius: 8px; padding: 12px; margin: 15px 0; text-align: left; font-size: 13px; color: #00ff00; border: 1px solid #333; }}
     </style></head><body>
     <div class="card">
-        <h2 style="margin:0;">SNIPER V3 PRO</h2>
-        <div class="owner">Owner: {OWNER_NAME}</div>
+        <h2>SNIPER V3 PRO</h2>
+        <div style="color:#888; font-size:11px; margin-bottom:20px;">Owner: {OWNER_NAME}</div>
         <div style="color:{status_color}; font-weight:bold; margin-bottom: 20px;">● {status_text}</div>
-        
         <a href="/on" class="btn start">START BOT</a>
         <a href="/off" class="btn stop">STOP BOT</a>
-        
-        <div class="info-box">
-            <b>PAIR:</b> {current_pair_data}<br>
-            <b>TIME:</b> {current_time_data}
-        </div>
-        
+        <div class="info-box"><b>PAIR:</b> {current_pair_data}<br><b>TIME:</b> {current_time_data}</div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
             <a href="/win" class="btn win">WIN</a>
             <a href="/mtg" class="btn mtg">MTG</a>
         </div>
-        
         <a href="/loss" class="btn loss">LOSS</a>
         <a href="/final" class="btn final">🔥 FINAL RESULTS 🔥</a>
     </div>
@@ -93,7 +81,6 @@ class ControlHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         global bot_running, session_history, stats
         def msg(t): requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": t, "parse_mode": "Markdown"})
-        
         if self.path == "/on": bot_running = True
         elif self.path == "/off": bot_running = False
         elif self.path == "/win":
@@ -109,18 +96,15 @@ class ControlHandler(BaseHTTPRequestHandler):
             session_history.append(f"❑ {current_time_data} - {current_pair_data} ❌")
             msg(f"💀 *TOTAL LOSS ALERT* 💀\n━━━━━━━━━━━━━━\n💎 *Pair:* {current_pair_data}\n⏰ *Time:* {current_time_data}\n❌ *Result:* Failed\n━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
         elif self.path == "/final":
-            total = stats["win"] + stats["mtg"] + stats["loss"]
-            win_c = stats["win"] + stats["mtg"]
+            total = stats["win"] + stats["mtg"] + stats["loss"]; win_c = stats["win"] + stats["mtg"]
             acc = (win_c / total * 100) if total > 0 else 0
-            res_str = "\n".join(session_history) if session_history else "No Data"
-            msg(f"💠 ✨ ···🔥 FINAL RESULTS 🔥··· ✨ 💠\n━━━━━━━━━━━━━━━━━━━━\n📅 Date: {datetime.datetime.now(TZ).strftime('%Y.%m.%d')}\n━━━━━━━━━━━━━━━━━━━━\n{res_str}\n━━━━━━━━━━━━━━━━━━━━\n🔮 Total: {total} | 🎯 Win: {win_c} | 💀 Loss: {stats['loss']} ({acc:.0f}%)\n👤 Owner: {OWNER_NAME}")
+            res = "\n".join(session_history) if session_history else "No Data"
+            msg(f"💠 🔥 FINAL RESULTS 🔥 💠\n━━━━━━━━━━━━━━\n{res}\n━━━━━━━━━━━━━━\n🔮 Total: {total} | 🎯 Win: {win_c} | 💀 Loss: {stats['loss']} ({acc:.0f}%)\n👤 Owner: {OWNER_NAME}")
             stats["win"], stats["mtg"], stats["loss"], session_history = 0, 0, 0, []
-
         self.send_response(200); self.send_header("Content-type", "text/html"); self.end_headers()
         self.wfile.write(get_html().encode())
     def log_message(self, format, *args): return
 
-# --- SIGNAL ENGINE ---
 def signal_loop():
     global sent_signals_cache, current_pair_data, current_time_data, last_signal_timestamp
     while True:
@@ -128,8 +112,6 @@ def signal_loop():
             if bot_running:
                 now = datetime.datetime.now(TZ)
                 current_ts = time.time()
-                
-                # ক্যান্ডেল শেষ হওয়ার ১২ সেকেন্ড আগে চেক করবে
                 if now.second == 48 and (current_ts - last_signal_timestamp) >= 180:
                     c_min = now.strftime("%H:%M")
                     if c_min not in sent_signals_cache:
@@ -142,21 +124,12 @@ def signal_loop():
                                     best_score, best_pair = abs(score), pair
                                     best_action = "CALL 📈" if score > 0 else "PUT 📉"
                             except: continue
-                        
                         if best_pair and best_score >= 0.35:
                             trade_t = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
                             current_pair_data, current_time_data = best_pair, f"{trade_t}:00"
                             last_signal_timestamp = current_ts 
-                            
-                            # প্রিমিয়াম সিগন্যাল ফরম্যাট
-                            msg_text = (f"🎯 *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n"
-                                        f"💎 *Pair:* {best_pair}\n📊 *Action:* {best_action}\n"
-                                        f"⏰ *Time:* {now.strftime('%H:%M:%S')}\n"
-                                        f"🎯 *Trade:* {trade_t}:00\n"
-                                        f"🚀 *Accuracy:* 98.5%\n━━━━━━━━━━━━━━━━━━━━\n"
-                                        f"👤 *Owner:* {OWNER_NAME}")
-                                        
-                            threading.Thread(target=send_signal_with_ss, args=(msg_text, best_pair)).start()
+                            msg = (f"🎯 *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n💎 *Pair:* {best_pair}\n📊 *Action:* {best_action}\n⏰ *Time:* {now.strftime('%H:%M:%S')}\n🎯 *Trade:* {trade_t}:00\n🚀 *Accuracy:* 98.5%\n━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
+                            threading.Thread(target=send_signal_with_ss, args=(msg, best_pair)).start()
                             sent_signals_cache.add(c_min)
                 if now.second == 0: gc.collect()
         except: time.sleep(0.1)
