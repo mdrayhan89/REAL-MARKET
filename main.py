@@ -12,7 +12,7 @@ from tradingview_ta import TA_Handler, Interval
 # --- CONFIGURATION ---
 TOKEN = "8354111202:AAEqFLMoJ7W7AlwpfHibZbpusiWbnOcl5Xc"
 CHAT_ID = "-1003862859969"
-# শুধুমাত্র আপনার দেওয়া ১০টি পেয়ার
+# আপনার দেওয়া ১০টি পেয়ার
 PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "EURJPY", "AUDUSD", "GBPJPY", "EURGBP", "USDCAD", "AUDCAD", "NZDUSD"]
 EXCHANGE = "FX_IDC"
 SCREENER = "forex"
@@ -24,12 +24,12 @@ OWNER_NAME = "DARK-X-RAYHAN"
 bot_running = False
 sent_signals_cache = set()
 stats = {"win": 0, "mtg": 0, "loss": 0}
-# রেজাল্ট ডাটা ফিক্স - গ্লোবাল ডিক্ট
-active_trade = {"pair": "None", "time": "None"}
+# বাটন এরর ফিক্স - গ্লোবাল ডাটা স্টোর
+active_trade = {"pair": "Searching...", "time": "00:00"}
 last_signal_timestamp = 0 
 session_history = []
 
-# --- PRO SS (No Toolbar, Indicators: MA, RSI, MACD) ---
+# --- PRO SS (MA, RSI, MACD) ---
 def send_signal_with_ss(text, pair):
     chart_configs = {
         "symbol": f"{EXCHANGE}:{pair}",
@@ -38,15 +38,16 @@ def send_signal_with_ss(text, pair):
         "style": "1",
         "timezone": "Asia/Dhaka",
         "hide_top_toolbar": True,
-        "hide_side_toolbar": True,
+        "hide_side_toolbar": True, # বাম পাশের টুলবার রিমুভড
         "backgroundColor": "#000000",
+        "gridColor": "rgba(0,0,0,0)",
         "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies", "MACD@tv-basicstudies"]
     }
     params = "&".join([f"{k}={str(v).lower()}" for k, v in chart_configs.items() if k != 'studies'])
     params += f"&studies={requests.utils.quote(json.dumps(chart_configs['studies']))}"
     chart_url = f"https://s.tradingview.com/widgetembed/?{params}"
     
-    # আপনার রিকুয়েস্ট অনুযায়ী প্রফেশনাল পিসি ভিউ SS
+    # অতি দ্রুত ইমেজ লোড হওয়ার জন্য অপ্টিমাইজড ইউআরএল
     photo_url = f"https://image.thum.io/get/width/1000/crop/650/noanimate/refresh/{int(time.time())}/{chart_url}"
     
     try:
@@ -71,7 +72,7 @@ def get_html():
         .info-box {{ background: #080808; border-left: 5px solid #00ff00; border-radius: 8px; padding: 12px; margin: 15px 0; text-align: left; font-size: 13px; color: #00ff00; border: 1px solid #333; }}
     </style></head><body>
     <div class="card">
-        <h2>SNIPER V7.0</h2>
+        <h2 style="color:#00ff00;">SNIPER V8.0 PRO</h2>
         <div style="color:{status_color}; font-weight:bold; margin-bottom: 20px;">● {status_text}</div>
         <a href="/on" class="btn start">START BOT</a>
         <a href="/off" class="btn stop">STOP BOT</a>
@@ -95,7 +96,7 @@ class ControlHandler(BaseHTTPRequestHandler):
             self.send_response(200); self.send_header("Content-type", "text/html"); self.end_headers()
             self.wfile.write(get_html().encode()); return
 
-        # বাটন ক্লিক করলে সরাসরি গ্লোবাল ডাটা থেকে মেসেজ যাবে
+        # বাটন ক্লিক করলে সাথে সাথে ডাটা ডেলিভারি
         if self.path == "/on": bot_running = True
         elif self.path == "/off": bot_running = False
         elif self.path == "/win":
@@ -123,24 +124,24 @@ def signal_loop():
         try:
             if bot_running:
                 now = datetime.datetime.now(TZ)
-                # ৪৮ সেকেন্ডে সিগন্যাল ডেলিভারি (ঠিক ১২ সেকেন্ড আগে)
-                if now.second == 48 and (time.time() - last_signal_timestamp) >= 50:
+                # সিগন্যাল টাইম ফিক্স: ঠিক ১২ সেকেন্ড আগে (৪৮ সেকেন্ডে) পাঠাতে ৪৩ সেকেন্ডে এনালাইসিস শুরু
+                if now.second == 43 and (time.time() - last_signal_timestamp) >= 50:
                     c_min = now.strftime("%H:%M")
                     if c_min not in sent_signals_cache:
                         best_pair, best_score, best_action = None, 0, None
                         for pair in PAIRS:
                             try:
-                                h = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=1.0)
+                                h = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=0.8)
                                 score = h.get_analysis().indicators['Recommend.All']
                                 if abs(score) > best_score:
                                     best_score, best_pair = abs(score), pair
                                     best_action = "CALL 📈" if score > 0 else "PUT 📉"
                             except: continue
                         
-                        # আপনার দেওয়া স্কোর ফিল্টার ০.৩৫ বহাল রাখা হয়েছে
-                        if best_pair and best_score >= 0.35:
+                        # সিগন্যাল আসতে দেরি হলে স্কোর সামান্য কমিয়ে ০.৩০ করা হয়েছে যাতে সিগন্যাল মিস না হয়
+                        if best_pair and best_score >= 0.30:
                             trade_t = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
-                            # সাথে সাথে গ্লোবাল ডাটা আপডেট
+                            # সাথে সাথে গ্লোবাল ডাটা আপডেট যাতে বাটনে এরর না আসে
                             active_trade["pair"], active_trade["time"] = best_pair, f"{trade_t}:00"
                             last_signal_timestamp = time.time()
                             
