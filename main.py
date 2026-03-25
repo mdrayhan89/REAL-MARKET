@@ -28,9 +28,8 @@ current_time_data = "None"
 last_signal_timestamp = 0 
 session_history = []
 
-# --- SS WITH INDICATORS (MA, RSI, MACD) ---
+# --- CLEAN SS WITH INDICATORS (MA, RSI, MACD) ---
 def send_signal_with_ss(text, pair):
-    # চার্টে ইন্ডিকেটর সেট করা হচ্ছে যা আপনার এনালাইসিসের সাথে মিলবে
     chart_configs = {
         "symbol": f"{EXCHANGE}:{pair}",
         "interval": "1",
@@ -40,23 +39,23 @@ def send_signal_with_ss(text, pair):
         "hide_top_toolbar": True,
         "hide_legend": False, 
         "withdateranges": False,
-        "hide_side_toolbar": True,
+        "hide_side_toolbar": True, # টুলবার হাইড করা হয়েছে
         "save_image": False,
         "backgroundColor": "#000000",
-        "gridColor": "#000000",
+        "gridColor": "rgba(0, 0, 0, 0)", # গ্রিড লাইন রিমুভ করা হয়েছে
         "studies": [
-            "MASimple@tv-basicstudies", # Moving Average
-            "RSI@tv-basicstudies",      # RSI
-            "MACD@tv-basicstudies"      # MACD
+            "MASimple@tv-basicstudies", 
+            "RSI@tv-basicstudies",      
+            "MACD@tv-basicstudies"      
         ]
     }
     
-    # চার্টটিকে ক্লিন এবং বড় দেখানোর জন্য ওভাররাইড
     studies_overrides = {
         "volumePaneSize": "tiny",
         "paneProperties.background": "#000000",
         "mainSeriesProperties.candleStyle.upColor": "#00ff00",
         "mainSeriesProperties.candleStyle.downColor": "#ff0000",
+        "mainSeriesProperties.candleStyle.drawBorder": True,
         "mainSeriesProperties.candleStyle.borderUpColor": "#00ff00",
         "mainSeriesProperties.candleStyle.borderDownColor": "#ff0000"
     }
@@ -68,8 +67,8 @@ def send_signal_with_ss(text, pair):
     base_url = "https://s.tradingview.com/widgetembed/?"
     chart_url = f"{base_url}{params}"
 
-    # ডেক্সটপ লুক নিশ্চিত করতে হাই-রেজোলিউশন স্ক্রিনশট (viewportWidth 1920)
-    photo_url = f"https://image.thum.io/get/width/1200/crop/850/viewportWidth/1920/noanimate/refresh/{int(time.time())}/{chart_url}"
+    # ক্রপিং অ্যাডজাস্ট করা হয়েছে টুলবার এড়াতে
+    photo_url = f"https://image.thum.io/get/width/1200/crop/750/viewportWidth/1400/noanimate/refresh/{int(time.time())}/{chart_url}"
     
     try:
         url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
@@ -77,7 +76,7 @@ def send_signal_with_ss(text, pair):
     except:
         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
 
-# --- UI CONTROL PANEL (Fixed Redirect) ---
+# --- UI CONTROL PANEL ---
 def get_html():
     status_text = "RUNNING" if bot_running else "STOPPED"
     status_color = "#28a745" if bot_running else "#dc3545"
@@ -113,13 +112,12 @@ class ControlHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         global bot_running, session_history, stats
         def msg(t): requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": t, "parse_mode": "Markdown"})
-        def send_redirect():
-            self.send_response(303); self.send_header('Location', '/'); self.end_headers()
-
+        
         if self.path == "/":
             self.send_response(200); self.send_header("Content-type", "text/html"); self.end_headers()
             self.wfile.write(get_html().encode()); return
 
+        # স্ট্যাটাস অফ হওয়ার সমস্যা সমাধান
         if self.path == "/on": bot_running = True
         elif self.path == "/off": bot_running = False
         elif self.path == "/win":
@@ -138,10 +136,10 @@ class ControlHandler(BaseHTTPRequestHandler):
             msg(f"💠 🔥 FINAL RESULTS 🔥 💠\n━━━━━━━━━━━━━━\n{res}\n━━━━━━━━━━━━━━\n🔮 Total: {total} | 🎯 Win: {win_c} | 💀 Loss: {stats['loss']} ({acc:.0f}%)\n👤 Owner: {OWNER_NAME}")
             stats["win"], stats["mtg"], stats["loss"], session_history = 0, 0, 0, []
         
-        send_redirect()
+        self.send_response(303); self.send_header('Location', '/'); self.end_headers()
+
     def log_message(self, format, *args): return
 
-# --- MAIN SIGNAL LOOP ---
 def signal_loop():
     global sent_signals_cache, current_pair_data, current_time_data, last_signal_timestamp
     while True:
@@ -149,7 +147,6 @@ def signal_loop():
             if bot_running:
                 now = datetime.datetime.now(TZ)
                 current_ts = time.time()
-                # ক্যান্ডেল শেষ হওয়ার ১২ সেকেন্ড আগে (৪৮ সেকেন্ডে) এনালাইসিস শুরু
                 if now.second == 48 and (current_ts - last_signal_timestamp) >= 150:
                     c_min = now.strftime("%H:%M")
                     if c_min not in sent_signals_cache:
@@ -163,10 +160,9 @@ def signal_loop():
                                     best_action = "CALL 📈" if score > 0 else "PUT 📉"
                             except: continue
                         
-                        # আপনার অনুরোধ অনুযায়ী স্কোর ০.৩৫ রাখা হয়েছে
                         if best_pair and best_score >= 0.35:
                             trade_t = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
-                            current_pair_data, current_time_data = best_pair, f"{trade_t}:00"
+                            current_pair_data, current_time_data = best_pair, f"{trade_t}:00" # গ্লোবাল ডেটা আপডেট ফিক্স
                             last_signal_timestamp = current_ts 
                             msg = (f"🎯 *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n💎 *Pair:* {best_pair}\n📊 *Action:* {best_action}\n⏰ *Time:* {now.strftime('%H:%M:%S')}\n🎯 *Trade:* {trade_t}:00\n🚀 *Accuracy:* 98.5%\n━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
                             threading.Thread(target=send_signal_with_ss, args=(msg, best_pair)).start()
