@@ -30,11 +30,7 @@ session_history = []
 
 # --- SS WITH INDICATORS (MA, RSI, MACD) ---
 def send_signal_with_ss(text, pair):
-    # চার্ট এমবেড করার সময় ইন্ডিকেটরগুলো যুক্ত করা হচ্ছে
-    # 'MASimple@tv-basicstudies' = Moving Average
-    # 'RSI@tv-basicstudies' = RSI
-    # 'MACD@tv-basicstudies' = MACD
-    
+    # চার্টে ইন্ডিকেটর সেট করা হচ্ছে যা আপনার এনালাইসিসের সাথে মিলবে
     chart_configs = {
         "symbol": f"{EXCHANGE}:{pair}",
         "interval": "1",
@@ -42,25 +38,27 @@ def send_signal_with_ss(text, pair):
         "style": "1",
         "timezone": "Asia/Dhaka",
         "hide_top_toolbar": True,
-        "hide_legend": False, # ইন্ডিকেটরের নাম দেখার জন্য এটি True থেকে False করা হয়েছে
+        "hide_legend": False, 
         "withdateranges": False,
         "hide_side_toolbar": True,
         "save_image": False,
         "backgroundColor": "#000000",
         "gridColor": "#000000",
         "studies": [
-            "MASimple@tv-basicstudies",
-            "RSI@tv-basicstudies",
-            "MACD@tv-basicstudies"
+            "MASimple@tv-basicstudies", # Moving Average
+            "RSI@tv-basicstudies",      # RSI
+            "MACD@tv-basicstudies"      # MACD
         ]
     }
     
-    # ইন্ডিকেটরগুলো যেন স্পষ্ট দেখায় তার জন্য স্টাইল ওভাররাইড
+    # চার্টটিকে ক্লিন এবং বড় দেখানোর জন্য ওভাররাইড
     studies_overrides = {
-        "volumePaneSize": "tiny", # ভলিউম ছোট রাখা হয়েছে যাতে মেইন চার্ট বড় দেখায়
+        "volumePaneSize": "tiny",
         "paneProperties.background": "#000000",
         "mainSeriesProperties.candleStyle.upColor": "#00ff00",
-        "mainSeriesProperties.candleStyle.downColor": "#ff0000"
+        "mainSeriesProperties.candleStyle.downColor": "#ff0000",
+        "mainSeriesProperties.candleStyle.borderUpColor": "#00ff00",
+        "mainSeriesProperties.candleStyle.borderDownColor": "#ff0000"
     }
     
     params = "&".join([f"{k}={str(v).lower()}" for k, v in chart_configs.items() if k != 'studies'])
@@ -70,8 +68,8 @@ def send_signal_with_ss(text, pair):
     base_url = "https://s.tradingview.com/widgetembed/?"
     chart_url = f"{base_url}{params}"
 
-    # ডেক্সটপ লুক নিশ্চিত করতে হাই-রেজোলিউশন স্ক্রিনশট
-    photo_url = f"https://image.thum.io/get/width/1200/crop/800/viewportWidth/1920/noanimate/refresh/{int(time.time())}/{chart_url}"
+    # ডেক্সটপ লুক নিশ্চিত করতে হাই-রেজোলিউশন স্ক্রিনশট (viewportWidth 1920)
+    photo_url = f"https://image.thum.io/get/width/1200/crop/850/viewportWidth/1920/noanimate/refresh/{int(time.time())}/{chart_url}"
     
     try:
         url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
@@ -79,7 +77,7 @@ def send_signal_with_ss(text, pair):
     except:
         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
 
-# --- UI CONTROL PANEL (Fixed) ---
+# --- UI CONTROL PANEL (Fixed Redirect) ---
 def get_html():
     status_text = "RUNNING" if bot_running else "STOPPED"
     status_color = "#28a745" if bot_running else "#dc3545"
@@ -115,8 +113,6 @@ class ControlHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         global bot_running, session_history, stats
         def msg(t): requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": t, "parse_mode": "Markdown"})
-        
-        # বাটন ক্লিকের এরর ফিক্স
         def send_redirect():
             self.send_response(303); self.send_header('Location', '/'); self.end_headers()
 
@@ -145,6 +141,7 @@ class ControlHandler(BaseHTTPRequestHandler):
         send_redirect()
     def log_message(self, format, *args): return
 
+# --- MAIN SIGNAL LOOP ---
 def signal_loop():
     global sent_signals_cache, current_pair_data, current_time_data, last_signal_timestamp
     while True:
@@ -152,8 +149,8 @@ def signal_loop():
             if bot_running:
                 now = datetime.datetime.now(TZ)
                 current_ts = time.time()
-                # ক্যান্ডেল শেষ হওয়ার ১২ সেকেন্ড আগে ট্রিগার (৪৮ সেকেন্ডে)
-                if now.second == 48 and (current_ts - last_signal_timestamp) >= 180:
+                # ক্যান্ডেল শেষ হওয়ার ১২ সেকেন্ড আগে (৪৮ সেকেন্ডে) এনালাইসিস শুরু
+                if now.second == 48 and (current_ts - last_signal_timestamp) >= 150:
                     c_min = now.strftime("%H:%M")
                     if c_min not in sent_signals_cache:
                         best_pair, best_score, best_action = None, 0, None
@@ -166,6 +163,7 @@ def signal_loop():
                                     best_action = "CALL 📈" if score > 0 else "PUT 📉"
                             except: continue
                         
+                        # আপনার অনুরোধ অনুযায়ী স্কোর ০.৩৫ রাখা হয়েছে
                         if best_pair and best_score >= 0.35:
                             trade_t = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
                             current_pair_data, current_time_data = best_pair, f"{trade_t}:00"
