@@ -24,30 +24,28 @@ sent_signals_cache = set()
 stats = {"win": 0, "mtg": 0, "loss": 0}
 current_pair_data = "None"
 current_time_data = "None"
+session_history = []
 last_signal_timestamp = 0 
 
-# --- PERFECT PC VIEW SCREENSHOT LOGIC ---
+# --- PERFECT PC VIEW SCREENSHOT (DARK MODE) ---
 def send_signal_with_ss(text, pair):
-    # ডেক্সটপ পিসি ভিউ পাওয়ার জন্য উইজেট লিংক মডিফাই করা হয়েছে
-    # 'allow_symbol_change=false' এবং 'details=false' দিয়ে একদম পিসি লুক আনা হয়েছে
+    # ডেক্সটপ চার্ট ভিউ পাওয়ার জন্য উইজেট কনফিগারেশন
     chart_url = (f"https://s.tradingview.com/widgetembed/?symbol={EXCHANGE}:{pair}"
                  f"&interval=1&theme=dark&style=1&timezone=Asia%2FDhaka"
                  f"&hide_top_toolbar=true&hide_legend=true&withdateranges=false"
                  f"&hide_side_toolbar=true&save_image=false&backgroundColor=%23000000"
                  f"&gridColor=%23000000")
 
-    # thum.io কে বাধ্য করা হচ্ছে ডেক্সটপ রেজোলিউশন (1920x1080) ব্যবহার করতে
-    # এটি পিসি-তে আইডি লগইন করলে যেমন দেখায় ঠিক তেমন আউটপুট দিবে
-    photo_url = f"https://image.thum.io/get/width/1200/crop/650/viewportWidth/1920/viewportHeight/1080/noanimate/refresh/{int(time.time())}/{chart_url}"
+    # viewportWidth 1920 ব্যবহার করে একদম ডেক্সটপ পিসি ভিউ নিশ্চিত করা হয়েছে
+    photo_url = f"https://image.thum.io/get/width/1200/crop/650/viewportWidth/1920/noanimate/refresh/{int(time.time())}/{chart_url}"
     
     try:
         url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
-        # ১০ সেকেন্ড টাইমআউট যাতে স্লো না হয়
         requests.post(url, data={"chat_id": CHAT_ID, "photo": photo_url, "caption": text, "parse_mode": "Markdown"}, timeout=12)
     except:
         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
 
-# --- UI CONTROL PANEL (Fixed Design) ---
+# --- UI CONTROL PANEL (FIXED) ---
 def get_html():
     status_text = "RUNNING" if bot_running else "STOPPED"
     status_color = "#28a745" if bot_running else "#dc3545"
@@ -82,9 +80,27 @@ def get_html():
 class ControlHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         global bot_running, session_history, stats
-        def msg(t): requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": t, "parse_mode": "Markdown"})
-        if self.path == "/on": bot_running = True
-        elif self.path == "/off": bot_running = False
+        
+        # বাটন ক্লিকের পর ৫-২ এরর ফিক্স করার জন্য রিডাইরেক্ট লজিক
+        def send_redirect():
+            self.send_response(303)
+            self.send_header('Location', '/')
+            self.end_headers()
+
+        def msg(t):
+            requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": t, "parse_mode": "Markdown"})
+
+        if self.path == "/":
+            self.send_response(200)
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+            self.wfile.write(get_html().encode())
+            return
+
+        if self.path == "/on":
+            bot_running = True
+        elif self.path == "/off":
+            bot_running = False
         elif self.path == "/win":
             stats["win"] += 1
             session_history.append(f"❑ {current_time_data} - {current_pair_data} ✅")
@@ -98,13 +114,15 @@ class ControlHandler(BaseHTTPRequestHandler):
             session_history.append(f"❑ {current_time_data} - {current_pair_data} ❌")
             msg(f"💀 *TOTAL LOSS ALERT* 💀\n━━━━━━━━━━━━━━\n💎 *Pair:* {current_pair_data}\n⏰ *Time:* {current_time_data}\n❌ *Result:* Failed\n━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
         elif self.path == "/final":
-            total = stats["win"] + stats["mtg"] + stats["loss"]; win_c = stats["win"] + stats["mtg"]
+            total = stats["win"] + stats["mtg"] + stats["loss"]
+            win_c = stats["win"] + stats["mtg"]
             acc = (win_c / total * 100) if total > 0 else 0
             res = "\n".join(session_history) if session_history else "No Data"
             msg(f"💠 🔥 FINAL RESULTS 🔥 💠\n━━━━━━━━━━━━━━\n{res}\n━━━━━━━━━━━━━━\n🔮 Total: {total} | 🎯 Win: {win_c} | 💀 Loss: {stats['loss']} ({acc:.0f}%)\n👤 Owner: {OWNER_NAME}")
             stats["win"], stats["mtg"], stats["loss"], session_history = 0, 0, 0, []
-        self.send_response(200); self.send_header("Content-type", "text/html"); self.end_headers()
-        self.wfile.write(get_html().encode())
+        
+        send_redirect()
+
     def log_message(self, format, *args): return
 
 def signal_loop():
@@ -114,19 +132,21 @@ def signal_loop():
             if bot_running:
                 now = datetime.datetime.now(TZ)
                 current_ts = time.time()
-                # ৪৮ সেকেন্ডে ফিক্স করা হয়েছে যেন ১২ সেকেন্ড আগে পৌঁছায়
-                if now.second == 48 and (current_ts - last_signal_timestamp) >= 180:
+                # ৪৮ সেকেন্ডে সিগন্যাল ট্রিগার হবে
+                if now.second == 48 and (current_ts - last_signal_timestamp) >= 50:
                     c_min = now.strftime("%H:%M")
                     if c_min not in sent_signals_cache:
                         best_pair, best_score, best_action = None, 0, None
                         for pair in PAIRS:
                             try:
-                                h = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=1.5)
+                                h = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=2.0)
                                 score = h.get_analysis().indicators['Recommend.All']
                                 if abs(score) > best_score:
                                     best_score, best_pair = abs(score), pair
                                     best_action = "CALL 📈" if score > 0 else "PUT 📉"
                             except: continue
+                        
+                        # আপনার অনুরোধ অনুযায়ী স্কোর ০.৩৫ রাখা হয়েছে
                         if best_pair and best_score >= 0.35:
                             trade_t = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
                             current_pair_data, current_time_data = best_pair, f"{trade_t}:00"
