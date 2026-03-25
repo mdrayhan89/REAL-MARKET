@@ -24,20 +24,20 @@ bot_running = False
 stats = {"win": 0, "mtg": 0, "loss": 0}
 active_trade = {"pair": "Searching...", "time": "Waiting..."}
 session_history = []
-last_signal_timestamp = 0
 sent_minutes = set()
 
-# --- FAST IMAGE & TEXT COMBINED ---
-def send_combined_signal(text, pair):
-    # ড্রয়িং আইকন এবং টুলবার রিমুভ করার কনফিগ
+# --- NO-DRAWING SS GENERATOR ---
+def send_pro_signal(text, pair):
+    # ড্রয়িং আইকন এবং সাইডবার পুরোপুরি রিমুভ করার কনফিগ
     chart_configs = {
         "symbol": f"{EXCHANGE}:{pair}",
         "interval": "1",
         "theme": "dark",
         "style": "1",
-        "hide_side_toolbar": True, # বামের টুলবার রিমুভ
-        "hide_top_toolbar": True,  # উপরের টুলবার রিমুভ
-        "hide_legend": True,       # ড্রয়িং ও নাম রিমুভ
+        "hide_side_toolbar": True,  # বামের আইকন রিমুভ
+        "hide_top_toolbar": True,   # উপরের টুলবার রিমুভ
+        "hide_legend": True,        # নাম ও সেটিংস রিমুভ
+        "withdateranges": False,    # নিচের ডেট রেঞ্জ রিমুভ
         "backgroundColor": "#000000",
         "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies", "MACD@tv-basicstudies"]
     }
@@ -45,13 +45,13 @@ def send_combined_signal(text, pair):
     params += f"&studies={requests.utils.quote(json.dumps(chart_configs['studies']))}"
     chart_url = f"https://s.tradingview.com/widgetembed/?{params}"
     
-    # আপনার চাহিত ক্লিয়ার ডার্ক ভিউ
+    # আপনার চাহিত ক্লিয়ার ডার্ক ভিউ (High Resolution)
     photo_url = f"https://image.thum.io/get/width/1200/crop/700/noanimate/refresh/{int(time.time())}/{chart_url}"
     
     try:
-        # ফটো এবং ক্যাপশন একসাথে পাঠানো হচ্ছে যাতে দেরি না হয়
+        # ফটো এবং টেক্সট একসাথে ডেলিভারি
         url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
-        requests.post(url, data={"chat_id": CHAT_ID, "photo": photo_url, "caption": text, "parse_mode": "Markdown"}, timeout=25)
+        requests.post(url, data={"chat_id": CHAT_ID, "photo": photo_url, "caption": text, "parse_mode": "Markdown"}, timeout=30)
     except:
         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
 
@@ -115,34 +115,36 @@ class ControlHandler(BaseHTTPRequestHandler):
         self.send_response(303); self.send_header('Location', '/'); self.end_headers()
 
 def signal_loop():
-    global active_trade, last_signal_timestamp, sent_minutes
+    global active_trade, sent_minutes
     while True:
         try:
             if bot_running:
                 now = datetime.datetime.now(TZ)
-                # ১২ সেকেন্ড আগে এনালাইসিস ফিক্সড (৪৪-৪৮ সেকেন্ডে)
-                if 44 <= now.second <= 48:
+                # ১২ সেকেন্ড আগে এনালাইসিস ফিক্সড (৪৪-৪৯ সেকেন্ডে)
+                if 44 <= now.second <= 49:
                     current_min = now.strftime("%H:%M")
                     if current_min not in sent_minutes:
                         best_pair, best_score, best_action = None, 0, None
                         for pair in PAIRS:
                             try:
-                                h = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=0.7)
-                                score = h.get_analysis().indicators['Recommend.All']
+                                h = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=0.6)
+                                analysis = h.get_analysis()
+                                score = analysis.indicators['Recommend.All']
                                 if abs(score) > best_score:
                                     best_score, best_pair = abs(score), pair
                                     best_action = "CALL 📈" if score > 0 else "PUT 📉"
                             except: continue
                         
-                        if best_pair and best_score >= 0.08: # সিগন্যাল ফ্রিকোয়েন্সি বাড়াতে স্কোর আরও কমানো হয়েছে
+                        # সিগন্যাল যাতে মিস না হয় তাই স্কোর ০.০৫ এ নামানো হয়েছে
+                        if best_pair and best_score >= 0.05:
                             trade_t = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
                             active_trade["pair"], active_trade["time"] = best_pair, f"{trade_t}:00"
                             sent_minutes.add(current_min)
                             
                             msg_text = (f"🎯 *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n💎 *Pair:* {best_pair}\n📊 *Action:* {best_action}\n⏰ *Time:* {now.strftime('%H:%M:%S')}\n🎯 *Trade:* {trade_t}:00\n🚀 *Accuracy:* 98.5%\n━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
-                            threading.Thread(target=send_combined_signal, args=(msg_text, best_pair)).start()
+                            threading.Thread(target=send_pro_signal, args=(msg_text, best_pair)).start()
                 
-                # ক্যাশ মেমোরি প্রতি ঘন্টায় রিসেট
+                # মেমোরি রিসেট
                 if now.minute == 0 and now.second == 0: sent_minutes.clear(); gc.collect()
         except: time.sleep(1)
         time.sleep(1)
