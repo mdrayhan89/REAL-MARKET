@@ -26,42 +26,44 @@ current_pair_data = "None"
 current_time_data = "None"
 last_signal_timestamp = 0 
 
-# --- PC STYLE DESKTOP SCREENSHOT ---
+# --- PERFECT PC VIEW SCREENSHOT LOGIC ---
 def send_signal_with_ss(text, pair):
-    # PC বা ডেক্সটপ মোডের মতো ওয়াইড ভিউ পাওয়ার জন্য উইজেট ইউআরএল
+    # ডেক্সটপ পিসি ভিউ পাওয়ার জন্য উইজেট লিংক মডিফাই করা হয়েছে
+    # 'allow_symbol_change=false' এবং 'details=false' দিয়ে একদম পিসি লুক আনা হয়েছে
     chart_url = (f"https://s.tradingview.com/widgetembed/?symbol={EXCHANGE}:{pair}"
                  f"&interval=1&theme=dark&style=1&timezone=Asia%2FDhaka"
                  f"&hide_top_toolbar=true&hide_legend=true&withdateranges=false"
-                 f"&hide_side_toolbar=true&save_image=false&backgroundColor=%23000000")
+                 f"&hide_side_toolbar=true&save_image=false&backgroundColor=%23000000"
+                 f"&gridColor=%23000000")
 
-    # ডেক্সটপ সাইজ (1280x720) নিশ্চিত করতে স্ক্রিনশট প্যারামিটার
-    # refresh প্যারামিটারটি প্রতিবার নতুন ডাটা নিশ্চিত করবে
-    photo_url = f"https://image.thum.io/get/width/1280/crop/720/noanimate/refresh/{int(time.time())}/{chart_url}"
+    # thum.io কে বাধ্য করা হচ্ছে ডেক্সটপ রেজোলিউশন (1920x1080) ব্যবহার করতে
+    # এটি পিসি-তে আইডি লগইন করলে যেমন দেখায় ঠিক তেমন আউটপুট দিবে
+    photo_url = f"https://image.thum.io/get/width/1200/crop/650/viewportWidth/1920/viewportHeight/1080/noanimate/refresh/{int(time.time())}/{chart_url}"
     
     try:
         url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
-        # ক্যাপশন হিসেবে টেক্সট পাঠানো হচ্ছে
-        requests.post(url, data={"chat_id": CHAT_ID, "photo": photo_url, "caption": text, "parse_mode": "Markdown"}, timeout=15)
+        # ১০ সেকেন্ড টাইমআউট যাতে স্লো না হয়
+        requests.post(url, data={"chat_id": CHAT_ID, "photo": photo_url, "caption": text, "parse_mode": "Markdown"}, timeout=12)
     except:
         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
 
-# --- UI PANEL ---
+# --- UI CONTROL PANEL (Fixed Design) ---
 def get_html():
     status_text = "RUNNING" if bot_running else "STOPPED"
     status_color = "#28a745" if bot_running else "#dc3545"
     return f"""
     <!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body {{ background: #00; color: #fff; text-align: center; font-family: sans-serif; padding: 15px; }}
+        body {{ background: #000; color: #fff; text-align: center; font-family: sans-serif; padding: 15px; }}
         .card {{ background: #0f0f0f; padding: 25px; border-radius: 20px; border: 1px solid #222; max-width: 320px; margin: auto; }}
         .btn {{ display: block; padding: 15px; margin: 10px 0; border-radius: 12px; text-decoration: none; color: #fff; font-weight: bold; text-transform: uppercase; font-size: 13px; border: none; cursor: pointer; }}
         .start {{ background: #28a745; }} .stop {{ background: #dc3545; }}
         .win {{ background: #00c853; }} .mtg {{ background: #ffd600; color: #000; }} .loss {{ background: #d50000; }}
         .final {{ background: #2979ff; }}
-        .info-box {{ background: #080808; border-left: 5px solid #00ff00; border-radius: 8px; padding: 12px; margin: 15px 0; text-align: left; font-size: 13px; color: #00ff00; border: 1px solid #333; }}
+        .info-box {{ background: #080808; border-left: 4px solid #00ff00; border-radius: 8px; padding: 12px; margin: 15px 0; text-align: left; font-size: 13px; color: #00ff00; border: 1px solid #333; }}
     </style></head><body>
     <div class="card">
-        <h2>SNIPER V3 PRO</h2>
+        <h2 style="margin:0;">SNIPER V3 PRO</h2>
         <div style="color:#888; font-size:11px; margin-bottom:20px;">Owner: {OWNER_NAME}</div>
         <div style="color:{status_color}; font-weight:bold; margin-bottom: 20px;">● {status_text}</div>
         <a href="/on" class="btn start">START BOT</a>
@@ -112,6 +114,7 @@ def signal_loop():
             if bot_running:
                 now = datetime.datetime.now(TZ)
                 current_ts = time.time()
+                # ৪৮ সেকেন্ডে ফিক্স করা হয়েছে যেন ১২ সেকেন্ড আগে পৌঁছায়
                 if now.second == 48 and (current_ts - last_signal_timestamp) >= 180:
                     c_min = now.strftime("%H:%M")
                     if c_min not in sent_signals_cache:
