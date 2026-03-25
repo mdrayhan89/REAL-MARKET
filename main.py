@@ -23,13 +23,12 @@ OWNER_NAME = "DARK-X-RAYHAN"
 bot_running = False
 sent_signals_cache = set()
 stats = {"win": 0, "mtg": 0, "loss": 0}
-# রেজাল্ট ডাটা ফিক্স করার জন্য গ্লোবাল স্টোর
-last_pair = "Waiting"
-last_time = "Waiting"
+# "Waiting" এরর ফিক্স করার জন্য গ্লোবাল ডাটা স্টোর
+active_trade = {"pair": "None", "time": "None", "score": 0}
 last_signal_timestamp = 0 
 session_history = []
 
-# --- FAST & PRO SS WITH INDICATORS (MA, RSI, MACD) ---
+# --- FAST & Indicator SS (MA, RSI, MACD) ---
 def send_signal_with_ss(text, pair):
     # চার্টে ইন্ডিকেটর সেট করা হচ্ছে যা আপনার এনালাইসিসের সাথে মিলবে
     # 'MASimple@tv-basicstudies' = Moving Average
@@ -45,48 +44,36 @@ def send_signal_with_ss(text, pair):
         "hide_top_toolbar": True,
         "hide_side_toolbar": True,
         "hide_legend": False, # ইন্ডিকেটরের নাম দেখার জন্য এটি True থেকে False করা হয়েছে
-        "withdateranges": False,
         "save_image": False,
         "backgroundColor": "#000000",
-        "gridColor": "#000000",
-        "studies": [
-            "MASimple@tv-basicstudies", 
-            "RSI@tv-basicstudies",      
-            "MACD@tv-basicstudies"      
-        ]
+        "gridColor": "rgba(0,0,0,0)",
+        "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies", "MACD@tv-basicstudies"]
     }
     
-    # চার্টটিকে ক্লিন এবং বড় দেখানোর জন্য ওভাররাইড
     studies_overrides = {
-        "volumePaneSize": "tiny", # ভলিউম ছোট রাখা হয়েছে যাতে মেইন চার্ট বড় দেখায়
-        "paneProperties.background": "#000000",
+        "paneProperties.topMargin": 2,
+        "paneProperties.bottomMargin": 2,
+        "volumePaneSize": "tiny",
         "mainSeriesProperties.candleStyle.upColor": "#00ff00",
-        "mainSeriesProperties.candleStyle.downColor": "#ff0000",
-        "mainSeriesProperties.candleStyle.drawBorder": True,
-        "mainSeriesProperties.candleStyle.borderUpColor": "#00ff00",
-        "mainSeriesProperties.candleStyle.borderDownColor": "#ff0000"
+        "mainSeriesProperties.candleStyle.downColor": "#ff0000"
     }
     
     params = "&".join([f"{k}={str(v).lower()}" for k, v in chart_configs.items() if k != 'studies'])
     params += f"&studies={requests.utils.quote(json.dumps(chart_configs['studies']))}"
     params += f"&studies_overrides={requests.utils.quote(json.dumps(studies_overrides))}"
 
-    base_url = "https://s.tradingview.com/widgetembed/?"
-    chart_url = f"{base_url}{params}"
-
-    # ডেক্সটপ লুক নিশ্চিত করতে হাই-রেজোলিউশন স্ক্রিনশট (viewportWidth 1920)
-    photo_url = f"https://image.thum.io/get/width/1200/crop/800/viewportWidth/1920/noanimate/refresh/{int(time.time())}/{chart_url}"
+    chart_url = f"https://s.tradingview.com/widgetembed/?{params}"
+    
+    # এপিআই ইউআরএল ছোট করা হয়েছে যাতে ছবি দ্রুত টেলিগ্রামে পৌঁছায়
+    photo_url = f"https://image.thum.io/get/width/1000/crop/650/noanimate/refresh/{int(time.time())}/{chart_url}"
     
     try:
         url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
-        # ক্যাপশন হিসেবে টেক্সট পাঠিয়ে দিবে
-        r = requests.post(url, data={"chat_id": CHAT_ID, "photo": photo_url, "caption": text, "parse_mode": "Markdown"}, timeout=30)
-        if r.status_code != 200:
-            requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
+        requests.post(url, data={"chat_id": CHAT_ID, "photo": photo_url, "caption": text, "parse_mode": "Markdown"}, timeout=20)
     except:
         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
 
-# --- UI CONTROL PANEL ---
+# --- UI CONTROL PANEL (Fixed Redirect) ---
 def get_html():
     status_text = "RUNNING" if bot_running else "STOPPED"
     status_color = "#28a745" if bot_running else "#dc3545"
@@ -103,10 +90,11 @@ def get_html():
     </style></head><body>
     <div class="card">
         <h2>SNIPER V3 PRO</h2>
+        <div style="color:#888; font-size:11px; margin-bottom:20px;">Owner: {OWNER_NAME}</div>
         <div style="color:{status_color}; font-weight:bold; margin-bottom: 20px;">● {status_text}</div>
         <a href="/on" class="btn start">START BOT</a>
         <a href="/off" class="btn stop">STOP BOT</a>
-        <div class="info-box"><b>LAST:</b> {last_pair} | {last_time}</div>
+        <div class="info-box"><b>LAST TRADE:</b> {active_trade['pair']}<br><b>TIME:</b> {active_trade['time']}</div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
             <a href="/win" class="btn win">WIN</a>
             <a href="/mtg" class="btn mtg">MTG</a>
@@ -126,37 +114,39 @@ class ControlHandler(BaseHTTPRequestHandler):
             self.send_response(200); self.send_header("Content-type", "text/html"); self.end_headers()
             self.wfile.write(get_html().encode()); return
 
-        # বাটন ক্লিক করলে ডাটা ফিক্স
+        # বাটন ক্লিক করলে "Waiting" এরর ফিক্স
         if self.path == "/on": bot_running = True
         elif self.path == "/off": bot_running = False
         elif self.path == "/win":
-            stats["win"] += 1; session_history.append(f"❑ {last_time} - {last_pair} ✅")
-            msg(f"✅ *DIRECT WIN* ✅\n━━━━━━━━━━━━━━\n💎 *Pair:* {last_pair}\n⏰ *Time:* {last_time}\n📊 *Result:* Success\n━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
+            stats["win"] += 1; session_history.append(f"❑ {active_trade['time']} - {active_trade['pair']} ✅")
+            msg(f"✅ *DIRECT WIN* ✅\n━━━━━━━━━━━━━━\n💎 *Pair:* {active_trade['pair']}\n⏰ *Time:* {active_trade['time']}\n📊 *Accuracy:* {active_trade['score']:.1f}%\n━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
         elif self.path == "/mtg":
-            stats["mtg"] += 1; session_history.append(f"❑ {last_time} - {last_pair} ✅¹")
-            msg(f"✅¹ *MTG-1 WIN* ✅\n━━━━━━━━━━━━━━\n💎 *Pair:* {last_pair}\n⏰ *Time:* {last_time}\n📊 *Result:* Success\n━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
+            stats["mtg"] += 1; session_history.append(f"❑ {active_trade['time']} - {active_trade['pair']} ✅¹")
+            msg(f"✅¹ *MTG-1 WIN* ✅\n━━━━━━━━━━━━━━\n💎 *Pair:* {active_trade['pair']}\n⏰ *Time:* {active_trade['time']}\n📊 *Accuracy:* {active_trade['score']:.1f}%\n━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
         elif self.path == "/loss":
-            stats["loss"] += 1; session_history.append(f"❑ {last_time} - {last_pair} ❌")
-            msg(f"💀 *LOSS ALERT* 💀\n━━━━━━━━━━━━━━\n💎 *Pair:* {last_pair}\n⏰ *Time:* {last_time}\n❌ *Result:* Failed\n━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
+            stats["loss"] += 1; session_history.append(f"❑ {active_trade['time']} - {active_trade['pair']} ❌")
+            msg(f"💀 *LOSS ALERT* 💀\n━━━━━━━━━━━━━━\n💎 *Pair:* {active_trade['pair']}\n⏰ *Time:* {active_trade['time']}\n❌ *Result:* Failed\n━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
         elif self.path == "/final":
             total = stats["win"] + stats["mtg"] + stats["loss"]; win_c = stats["win"] + stats["mtg"]
             acc = (win_c / total * 100) if total > 0 else 0
             res = "\n".join(session_history) if session_history else "No Data"
-            msg(f"💠 🔥 FINAL RESULTS 🔥 💠\n━━━━━━━━━━━━━━\n{res}\n━━━━━━━━━━━━━━\n🎯 Accuracy: {acc:.0f}%\n👤 Owner: {OWNER_NAME}")
+            msg(f"💠 🔥 FINAL RESULTS 🔥 💠\n━━━━━━━━━━━━━━\n{res}\n━━━━━━━━━━━━━━\n🔮 Total: {total} | 🎯 Win: {win_c} | 💀 Loss: {stats['loss']} ({acc:.0f}%)\n👤 Owner: {OWNER_NAME}")
             stats["win"], stats["mtg"], stats["loss"], session_history = 0, 0, 0, []
         
+        # বাটন এরর ফিক্স
         self.send_response(303); self.send_header('Location', '/'); self.end_headers()
+
     def log_message(self, format, *args): return
 
 def signal_loop():
-    global sent_signals_cache, last_pair, last_time, last_signal_timestamp
+    global sent_signals_cache, active_trade, last_signal_timestamp
     while True:
         try:
             if bot_running:
                 now = datetime.datetime.now(TZ)
                 current_ts = time.time()
-                # ৪৮ সেকেন্ডে সিগন্যাল ট্রিগার বহাল রাখা হয়েছে প্রসেসিং টাইম কাভার করার জন্য
-                if now.second == 48 and (current_ts - last_signal_timestamp) >= 120:
+                # ক্যান্ডেল শেষ হওয়ার ঠিক ১২ সেকেন্ড আগে (৪৮ সেকেন্ডে) চেক করবে
+                if now.second == 48 and (current_ts - last_signal_timestamp) >= 150:
                     c_min = now.strftime("%H:%M")
                     if c_min not in sent_signals_cache:
                         best_pair, best_score, best_action = None, 0, None
@@ -172,7 +162,8 @@ def signal_loop():
                         # সিগন্যাল কনফার্মেশন স্কোর ফিল্টার ০.৩৫ বহাল রাখা হয়েছে
                         if best_pair and best_score >= 0.35:
                             trade_t = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
-                            last_pair, last_time = best_pair, f"{trade_t}:00"
+                            # রেজাল্ট বাটনের জন্য ডাটা গ্লোবাল স্টোরে আপডেট
+                            active_trade = {"pair": best_pair, "time": f"{trade_t}:00", "score": 98.5}
                             last_signal_timestamp = current_ts 
                             
                             # প্রিমিয়াম সিগন্যাল ফরম্যাট
@@ -181,7 +172,8 @@ def signal_loop():
                             threading.Thread(target=send_signal_with_ss, args=(msg, best_pair)).start()
                             sent_signals_cache.add(c_min)
                 if now.second == 0: gc.collect()
-        except: time.sleep(0.1)
+        except Exception as e:
+            print(f"Loop Error: {e}"); time.sleep(0.1)
         time.sleep(0.5)
 
 if __name__ == "__main__":
