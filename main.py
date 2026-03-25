@@ -24,23 +24,27 @@ sent_signals_cache = set()
 stats = {"win": 0, "mtg": 0, "loss": 0}
 current_pair_data = "None"
 current_time_data = "None"
-current_action_data = "None"
 session_history = [] 
 last_signal_timestamp = 0 
 
-# --- FAST & PROFESSIONAL SS SENDING ---
+# --- PROFESSIONAL "SIGNAL LOOK" SS SENDING ---
 def send_signal_with_ss(text, pair):
-    # MT4 Style Clean Dark Chart
-    chart_url = f"https://s.tradingview.com/widgetembed/?symbol={EXCHANGE}:{pair}&interval=1&theme=dark&style=1&timezone=Asia%2FDhaka&hide_top_toolbar=true&hide_legend=true&save_image=false"
-    
-    # Thum.io ব্যবহার করছি কারণ এটিতে API Key ঝামেলা নেই এবং দ্রুত কাজ করে
-    photo_url = f"https://image.thum.io/get/width/1024/crop/750/noanimate/https://s.tradingview.com/widgetembed/?symbol={EXCHANGE}:{pair}%26interval=1%26theme=dark"
+    # আপনার ২য় ছবির মতো 'Pro' লুক দেওয়ার জন্য চার্ট স্টাইল মডিফাই করা হয়েছে
+    # এটি চার্টের গ্রিডলাইন সম্পূর্ণ মুছে ফেলবে এবং ক্যান্ডেলের কনট্রাস্ট বাড়িয়ে দিবে
+    chart_url = (f"https://s.tradingview.com/widgetembed/?symbol={EXCHANGE}:{pair}"
+                 f"&interval=1&theme=dark&style=1&timezone=Asia%2FDhaka"
+                 f"&hide_top_toolbar=true&hide_legend=true&withdateranges=false"
+                 f"&hide_side_toolbar=true&save_image=false&backgroundColor=%23000000"
+                 f"&gridColor=%23000000") # গ্রিড কালার ব্ল্যাক করে একদম ক্লিন করা হয়েছে
+
+    # হাই-রেজোলিউশন স্ক্রিনশট জেনারেটর
+    photo_url = f"https://image.thum.io/get/width/1200/crop/800/noanimate/refresh/1/{chart_url}"
     
     try:
         url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
+        # ক্যাপশন মোডে ফটো পাঠানো হচ্ছে
         r = requests.post(url, data={"chat_id": CHAT_ID, "photo": photo_url, "caption": text, "parse_mode": "Markdown"}, timeout=30)
         if r.status_code != 200:
-            # Fallback: ছবি না আসলে মেসেজ পাঠিয়ে দিবে
             requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
     except:
         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
@@ -53,13 +57,13 @@ def get_html():
     <!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body {{ background: #000; color: #fff; text-align: center; font-family: sans-serif; padding: 15px; }}
-        .card {{ background: #0f0f0f; padding: 25px; border-radius: 20px; border: 1px solid #222; max-width: 320px; margin: auto; }}
-        .owner {{ color: #888; font-size: 11px; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 1px; }}
+        .card {{ background: #111; padding: 25px; border-radius: 20px; border: 1px solid #222; max-width: 320px; margin: auto; }}
+        .owner {{ color: #888; font-size: 11px; margin-bottom: 20px; text-transform: uppercase; }}
         .btn {{ display: block; padding: 15px; margin: 10px 0; border-radius: 12px; text-decoration: none; color: #fff; font-weight: bold; text-transform: uppercase; font-size: 13px; border: none; cursor: pointer; }}
         .start {{ background: #28a745; }} .stop {{ background: #dc3545; }}
         .win {{ background: #00c853; }} .mtg {{ background: #ffd600; color: #000; }} .loss {{ background: #d50000; }}
         .final {{ background: #2979ff; }}
-        .info-box {{ background: #080808; border-left: 4px solid #00ff00; border-radius: 8px; padding: 12px; margin: 15px 0; text-align: left; font-size: 13px; color: #00ff00; font-family: monospace; border: 1px solid #333; }}
+        .info-box {{ background: #080808; border-left: 5px solid #00ff00; border-radius: 8px; padding: 12px; margin: 15px 0; text-align: left; font-size: 13px; color: #00ff00; font-family: monospace; border: 1px solid #333; }}
     </style></head><body>
     <div class="card">
         <h2 style="margin:0;">SNIPER V3 PRO</h2>
@@ -125,6 +129,7 @@ def signal_loop():
                 now = datetime.datetime.now(TZ)
                 current_ts = time.time()
                 
+                # ক্যান্ডেল শেষ হওয়ার ১২ সেকেন্ড আগে চেক করবে
                 if now.second == 48 and (current_ts - last_signal_timestamp) >= 180:
                     c_min = now.strftime("%H:%M")
                     if c_min not in sent_signals_cache:
@@ -143,8 +148,15 @@ def signal_loop():
                             current_pair_data, current_time_data = best_pair, f"{trade_t}:00"
                             last_signal_timestamp = current_ts 
                             
-                            msg = (f"🎯 *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n💎 *Pair:* {best_pair}\n📊 *Action:* {best_action}\n⏰ *Time:* {now.strftime('%H:%M:%S')}\n🎯 *Trade:* {trade_t}:00\n🚀 *Accuracy:* 98.5%\n━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
-                            threading.Thread(target=send_signal_with_ss, args=(msg, best_pair)).start()
+                            # প্রিমিয়াম সিগন্যাল ফরম্যাট
+                            msg_text = (f"🎯 *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n"
+                                        f"💎 *Pair:* {best_pair}\n📊 *Action:* {best_action}\n"
+                                        f"⏰ *Time:* {now.strftime('%H:%M:%S')}\n"
+                                        f"🎯 *Trade:* {trade_t}:00\n"
+                                        f"🚀 *Accuracy:* 98.5%\n━━━━━━━━━━━━━━━━━━━━\n"
+                                        f"👤 *Owner:* {OWNER_NAME}")
+                                        
+                            threading.Thread(target=send_signal_with_ss, args=(msg_text, best_pair)).start()
                             sent_signals_cache.add(c_min)
                 if now.second == 0: gc.collect()
         except: time.sleep(0.1)
