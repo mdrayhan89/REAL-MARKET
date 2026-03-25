@@ -12,6 +12,7 @@ from tradingview_ta import TA_Handler, Interval
 # --- CONFIGURATION ---
 TOKEN = "8354111202:AAEqFLMoJ7W7AlwpfHibZbpusiWbnOcl5Xc"
 CHAT_ID = "-1003862859969"
+# শুধুমাত্র আপনার দেওয়া ১০টি পেয়ার
 PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "EURJPY", "AUDUSD", "GBPJPY", "EURGBP", "USDCAD", "AUDCAD", "NZDUSD"]
 EXCHANGE = "FX_IDC"
 SCREENER = "forex"
@@ -23,11 +24,12 @@ OWNER_NAME = "DARK-X-RAYHAN"
 bot_running = False
 sent_signals_cache = set()
 stats = {"win": 0, "mtg": 0, "loss": 0}
-active_trade = {"pair": "Searching...", "time": "00:00"}
+# রেজাল্ট ডাটা ফিক্স - গ্লোবাল ডিক্ট
+active_trade = {"pair": "None", "time": "None"}
 last_signal_timestamp = 0 
 session_history = []
 
-# --- PRO SS (MA, RSI, MACD) ---
+# --- PRO SS (No Toolbar, Indicators: MA, RSI, MACD) ---
 def send_signal_with_ss(text, pair):
     chart_configs = {
         "symbol": f"{EXCHANGE}:{pair}",
@@ -36,7 +38,7 @@ def send_signal_with_ss(text, pair):
         "style": "1",
         "timezone": "Asia/Dhaka",
         "hide_top_toolbar": True,
-        "hide_side_toolbar": True, # Toolbar thakbe na
+        "hide_side_toolbar": True,
         "backgroundColor": "#000000",
         "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies", "MACD@tv-basicstudies"]
     }
@@ -44,12 +46,12 @@ def send_signal_with_ss(text, pair):
     params += f"&studies={requests.utils.quote(json.dumps(chart_configs['studies']))}"
     chart_url = f"https://s.tradingview.com/widgetembed/?{params}"
     
-    # 1000px width jate PC view-er moto boro lage
+    # আপনার রিকুয়েস্ট অনুযায়ী প্রফেশনাল পিসি ভিউ SS
     photo_url = f"https://image.thum.io/get/width/1000/crop/650/noanimate/refresh/{int(time.time())}/{chart_url}"
     
     try:
         url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
-        requests.post(url, data={"chat_id": CHAT_ID, "photo": photo_url, "caption": text, "parse_mode": "Markdown"}, timeout=25)
+        requests.post(url, data={"chat_id": CHAT_ID, "photo": photo_url, "caption": text, "parse_mode": "Markdown"}, timeout=20)
     except:
         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
 
@@ -69,11 +71,11 @@ def get_html():
         .info-box {{ background: #080808; border-left: 5px solid #00ff00; border-radius: 8px; padding: 12px; margin: 15px 0; text-align: left; font-size: 13px; color: #00ff00; border: 1px solid #333; }}
     </style></head><body>
     <div class="card">
-        <h2>SNIPER V5.0</h2>
+        <h2>SNIPER V7.0</h2>
         <div style="color:{status_color}; font-weight:bold; margin-bottom: 20px;">● {status_text}</div>
         <a href="/on" class="btn start">START BOT</a>
         <a href="/off" class="btn stop">STOP BOT</a>
-        <div class="info-box"><b>LIVE:</b> {active_trade['pair']}<br><b>TIME:</b> {active_trade['time']}</div>
+        <div class="info-box"><b>LIVE PAIR:</b> {active_trade['pair']}<br><b>LIVE TIME:</b> {active_trade['time']}</div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
             <a href="/win" class="btn win">WIN</a>
             <a href="/mtg" class="btn mtg">MTG</a>
@@ -87,12 +89,13 @@ def get_html():
 class ControlHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         global bot_running, session_history, stats, active_trade
-        def msg(t): requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": t, "parse_mode": "Markdown"}, timeout=10)
+        def msg(t): requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": t, "parse_mode": "Markdown"}, timeout=5)
         
         if self.path == "/":
             self.send_response(200); self.send_header("Content-type", "text/html"); self.end_headers()
             self.wfile.write(get_html().encode()); return
 
+        # বাটন ক্লিক করলে সরাসরি গ্লোবাল ডাটা থেকে মেসেজ যাবে
         if self.path == "/on": bot_running = True
         elif self.path == "/off": bot_running = False
         elif self.path == "/win":
@@ -120,8 +123,8 @@ def signal_loop():
         try:
             if bot_running:
                 now = datetime.datetime.now(TZ)
-                # 48 second-e signal Telegram-e pathano confirm kora hoyeche (12s before)
-                if now.second == 46 and (time.time() - last_signal_timestamp) >= 50:
+                # ৪৮ সেকেন্ডে সিগন্যাল ডেলিভারি (ঠিক ১২ সেকেন্ড আগে)
+                if now.second == 48 and (time.time() - last_signal_timestamp) >= 50:
                     c_min = now.strftime("%H:%M")
                     if c_min not in sent_signals_cache:
                         best_pair, best_score, best_action = None, 0, None
@@ -134,9 +137,10 @@ def signal_loop():
                                     best_action = "CALL 📈" if score > 0 else "PUT 📉"
                             except: continue
                         
+                        # আপনার দেওয়া স্কোর ফিল্টার ০.৩৫ বহাল রাখা হয়েছে
                         if best_pair and best_score >= 0.35:
                             trade_t = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
-                            # Global variable update jate "Waiting" na ashe
+                            # সাথে সাথে গ্লোবাল ডাটা আপডেট
                             active_trade["pair"], active_trade["time"] = best_pair, f"{trade_t}:00"
                             last_signal_timestamp = time.time()
                             
