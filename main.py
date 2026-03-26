@@ -26,39 +26,34 @@ active_trade = {"pair": "Searching...", "time": "Waiting..."}
 session_history = []
 last_signal_time = 0 
 
-# --- INSTANT SYNC SIGNAL SENDER ---
-def send_synced_signal(text, pair):
-    # Chart config to remove icons and toolbar
+# --- ULTIMATE CLEAN SS GENERATOR ---
+def send_clean_signal(text, pair):
+    # ড্রয়িং আইকন এবং সব ধরনের সাইডবার রিমুভ করার প্রফেশনাল কনফিগ
     chart_configs = {
         "symbol": f"{EXCHANGE}:{pair}",
         "interval": "1",
         "theme": "dark",
         "style": "1",
-        "hide_side_toolbar": True, # Removes left draw icons
-        "hide_top_toolbar": True,
-        "hide_legend": True,
+        "hide_side_toolbar": True,  # বামের আইকন রিমুভ
+        "hide_top_toolbar": True,   # উপরের আইকন রিমুভ
+        "hide_legend": True,        # ইন্ডিকেটর নাম রিমুভ
         "withdateranges": False,
+        "allow_symbol_change": False,
+        "save_image": False,
         "backgroundColor": "#000000",
         "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies"]
     }
-    
     params = "&".join([f"{k}={str(v).lower()}" for k, v in chart_configs.items() if k != 'studies'])
     params += f"&studies={requests.utils.quote(json.dumps(chart_configs['studies']))}"
     chart_url = f"https://s.tradingview.com/widgetembed/?{params}"
     
-    # Refreshing SS with timestamp to avoid old images
-    photo_url = f"https://image.thum.io/get/width/1200/crop/750/noanimate/refresh/{int(time.time())}/{chart_url}"
+    # থাস্ব নেইল জেনারেটর (No Draw Icons)
+    photo_url = f"https://image.thum.io/get/width/1200/crop/700/noanimate/refresh/{int(time.time())}/{chart_url}"
     
     try:
-        # Sending photo and text together as a single message
+        # ফটো এবং ক্যাপশন একসাথে পাঠানো হচ্ছে যাতে দেরি না হয়
         url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
-        data = {
-            "chat_id": CHAT_ID,
-            "photo": photo_url,
-            "caption": text,
-            "parse_mode": "Markdown"
-        }
-        requests.post(url, data=data, timeout=30)
+        requests.post(url, data={"chat_id": CHAT_ID, "photo": photo_url, "caption": text, "parse_mode": "Markdown"}, timeout=30)
     except Exception as e:
         print(f"Error: {e}")
 
@@ -68,7 +63,7 @@ def get_html():
     status_color = "#00ff00" if bot_running else "#ff0000"
     return f"""
     <!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="20">
+    <meta http-equiv="refresh" content="25">
     <style>
         body {{ background: #000; color: #fff; text-align: center; font-family: sans-serif; padding: 10px; }}
         .card {{ background: #0a0a0a; padding: 20px; border-radius: 25px; border: 1px solid #1a1a1a; max-width: 340px; margin: auto; }}
@@ -127,26 +122,27 @@ def signal_loop():
         try:
             if bot_running:
                 now = datetime.datetime.now(TZ)
-                # Triggering at 48 seconds (12s before candle close)
-                if now.second == 48 and (time.time() - last_signal_time) > 175:
+                # ২ মিনিট ৩০ সেকেন্ড (১৫০ সেকেন্ড) বিরতি নিশ্চিত করা হয়েছে
+                if now.second == 48 and (time.time() - last_signal_time) > 150:
                     best_pair, best_score, best_action = None, 0, None
                     for pair in PAIRS:
                         try:
-                            h = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=1.0)
+                            h = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=0.6)
                             score = h.get_analysis().indicators['Recommend.All']
                             if abs(score) > best_score:
                                 best_score, best_pair = abs(score), pair
                                 best_action = "CALL 📈" if score > 0 else "PUT 📉"
                         except: continue
                     
-                    if best_pair and best_score >= 0.12:
+                    if best_pair and best_score >= 0.10:
                         trade_t = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
                         active_trade["pair"], active_trade["time"] = best_pair, f"{trade_t}:00"
                         last_signal_time = time.time()
                         
                         msg_text = (f"🎯 *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n💎 *Pair:* {best_pair}\n📊 *Action:* {best_action}\n⏰ *Time:* {now.strftime('%H:%M:%S')}\n🎯 *Trade:* {trade_t}:00\n🚀 *Accuracy:* 98.5%\n━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
-                        # Sending text and photo together
-                        threading.Thread(target=send_synced_signal, args=(msg_text, best_pair)).start()
+                        # ছবি এবং সিগন্যাল একসাথে ডেলিভারি
+                        threading.Thread(target=send_clean_signal, args=(msg_text, best_pair)).start()
+                        # মেমোরি রিলিজ
                         gc.collect()
         except: time.sleep(1)
         time.sleep(1)
