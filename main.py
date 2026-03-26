@@ -19,34 +19,32 @@ active_trade = {"pair": "Searching...", "time": "Waiting..."}
 last_sig_time = 0 
 session_history = []
 
-# --- CLEAN & UPDATED SS SENDER ---
-def send_ultra_signal(text, pair):
-    # চার্ট সেটিংস যা ড্র আইকন রিমুভ করে এবং লাস্ট ক্যান্ডেল বড় করে দেখায়
-    chart_configs = {
-        "symbol": f"{EXCHANGE}:{pair}",
-        "interval": "1",
-        "theme": "dark",
-        "style": "1",
-        "hide_side_toolbar": True, 
-        "hide_top_toolbar": True,
-        "hide_legend": True,
-        "backgroundColor": "#000000",
-        "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies"]
-    }
-    params = "&".join([f"{k}={str(v).lower()}" for k, v in chart_configs.items() if k != 'studies'])
-    params += f"&studies={requests.utils.quote(json.dumps(chart_configs['studies']))}"
-    chart_url = f"https://s.tradingview.com/widgetembed/?{params}"
-    
-    # লাস্ট ক্যান্ডেল দেখার জন্য উইডথ ও ক্রপ ফিক্স
-    photo_url = f"https://image.thum.io/get/width/1000/crop/650/noanimate/refresh/{int(time.time())}/{chart_url}"
-    
+# --- ROBUST TELEGRAM SENDER ---
+def send_telegram(msg, pair=None):
     try:
-        url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
-        # ফটো এবং টেক্সট একসাথে এক মেসেজে ডেলিভারি
-        requests.post(url, data={"chat_id": CHAT_ID, "photo": photo_url, "caption": text, "parse_mode": "Markdown"}, timeout=30)
+        # যদি পেয়ার থাকে তবে ইমেজ সহ পাঠানোর চেষ্টা করবে
+        if pair:
+            chart_configs = {
+                "symbol": f"{EXCHANGE}:{pair}", "interval": "1", "theme": "dark", "style": "1",
+                "hide_side_toolbar": True, "hide_top_toolbar": True, "hide_legend": True,
+                "backgroundColor": "#000000", "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies"]
+            }
+            params = "&".join([f"{k}={str(v).lower()}" for k, v in chart_configs.items() if k != 'studies'])
+            params += f"&studies={requests.utils.quote(json.dumps(chart_configs['studies']))}"
+            chart_url = f"https://s.tradingview.com/widgetembed/?{params}"
+            # লাস্ট ক্যান্ডেল দেখানোর জন্য স্পেশাল ক্রপ
+            photo_url = f"https://image.thum.io/get/width/1000/crop/600/noanimate/refresh/{int(time.time())}/{chart_url}"
+            
+            r = requests.post(f"https://api.telegram.org/bot{TOKEN}/sendPhoto", 
+                             data={"chat_id": CHAT_ID, "photo": photo_url, "caption": msg, "parse_mode": "Markdown"}, timeout=25)
+            if r.status_code == 200: return
+
+        # ইমেজ ফেইল করলে বা পেয়ার না থাকলে শুধু টেক্সট যাবে
+        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
+                     data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=20)
     except: pass
 
-# --- UI CONTROL PANEL (আপনার ২য় ছবি অনুযায়ী হুবহু ডিজাইন) ---
+# --- UI CONTROL PANEL (আপনার ছবি অনুযায়ী) ---
 def get_html():
     status_text = "RUNNING" if bot_running else "STOPPED"
     status_color = "#00ff00" if bot_running else "#ff0000"
@@ -56,7 +54,7 @@ def get_html():
         body {{ background: #000; color: #fff; text-align: center; font-family: sans-serif; padding: 10px; }}
         .card {{ background: #0a0a0a; padding: 20px; border-radius: 25px; border: 1px solid #1a1a1a; max-width: 340px; margin: auto; }}
         .owner {{ color: #00ff00; border: 1px solid #00ff00; padding: 5px; border-radius: 10px; margin-bottom: 15px; display: inline-block; font-size: 14px; font-weight: bold; }}
-        .btn {{ display: block; padding: 15px; margin: 10px 0; border-radius: 12px; text-decoration: none; color: #fff; font-weight: bold; text-transform: uppercase; border: none; font-size: 13px; }}
+        .btn {{ display: block; padding: 15px; margin: 10px 0; border-radius: 12px; text-decoration: none; color: #fff; font-weight: bold; text-transform: uppercase; font-size: 13px; cursor: pointer; }}
         .start {{ background: #2ecc71; }} .stop {{ background: #e74c3c; }}
         .win {{ background: #27ae60; }} .mtg {{ background: #f1c40f; color: #000; }} .loss {{ background: #c0392b; }}
         .final {{ background: #3498db; }}
@@ -79,7 +77,6 @@ def get_html():
 class ControlHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         global bot_running, stats, session_history
-        def msg(t): requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": t, "parse_mode": "Markdown"}, timeout=5)
         if self.path == "/":
             self.send_response(200); self.send_header("Content-type", "text/html"); self.end_headers()
             self.wfile.write(get_html().encode()); return
@@ -87,27 +84,26 @@ class ControlHandler(BaseHTTPRequestHandler):
         elif self.path == "/off": bot_running = False
         elif self.path == "/win":
             stats["win"] += 1; session_history.append(f"❑ {active_trade['pair']} ✅")
-            msg(f"✅ *DIRECT WIN* ✅\n━━━━━━━━━━━━━━\n💎 Pair: {active_trade['pair']}\n⏰ Time: {active_trade['time']}")
+            threading.Thread(target=send_telegram, args=(f"✅ *DIRECT WIN* ✅\n━━━━━━━━━━━━━━\n💎 Pair: {active_trade['pair']}\n⏰ Time: {active_trade['time']}",)).start()
         elif self.path == "/mtg":
             stats["mtg"] += 1; session_history.append(f"❑ {active_trade['pair']} ✅¹")
-            msg(f"✅¹ *MTG-1 WIN* ✅\n━━━━━━━━━━━━━━\n💎 Pair: {active_trade['pair']}\n⏰ Time: {active_trade['time']}")
+            threading.Thread(target=send_telegram, args=(f"✅¹ *MTG-1 WIN* ✅\n━━━━━━━━━━━━━━\n💎 Pair: {active_trade['pair']}\n⏰ Time: {active_trade['time']}",)).start()
         elif self.path == "/loss":
             stats["loss"] += 1; session_history.append(f"❑ {active_trade['pair']} ❌")
-            msg(f"💀 *LOSS ALERT* 💀\n━━━━━━━━━━━━━━\n💎 Pair: {active_trade['pair']}\n⏰ Time: {active_trade['time']}")
+            threading.Thread(target=send_telegram, args=(f"💀 *LOSS ALERT* 💀\n━━━━━━━━━━━━━━\n💎 Pair: {active_trade['pair']}\n⏰ Time: {active_trade['time']}",)).start()
         elif self.path == "/final":
-            total = sum(stats.values()); res = "\n".join(session_history) if session_history else "No Data"
-            msg(f"💠 FINAL RESULTS 💠\n━━━━━━━━━━━━━━\n{res}\n━━━━━━━━━━━━━━\n👤 Owner: {OWNER_NAME}")
+            res = "\n".join(session_history) if session_history else "No Data"
+            threading.Thread(target=send_telegram, args=(f"💠 FINAL SESSION RESULTS 💠\n━━━━━━━━━━━━━━\n{res}\n━━━━━━━━━━━━━━\n👤 Owner: {OWNER_NAME}",)).start()
             stats = {"win": 0, "mtg": 0, "loss": 0}; session_history = []
         self.send_response(303); self.send_header('Location', '/'); self.end_headers()
 
-# --- CONTINUOUS SIGNAL LOOP (বট অফ হবে না) ---
 def signal_loop():
     global active_trade, last_sig_time
     while True:
         try:
             if bot_running:
                 now = datetime.datetime.now(TZ)
-                # ১২ সেকেন্ড আগে এনালাইসিস এবং ১৬০ সেকেন্ড পর পর সিগন্যাল
+                # ৪৮তম সেকেন্ডে সিগন্যাল জেনারেশন
                 if now.second == 48 and (time.time() - last_sig_time) > 160:
                     best_pair, best_score, best_action = None, 0, None
                     for pair in PAIRS:
@@ -119,17 +115,16 @@ def signal_loop():
                                 best_action = "CALL 📈" if score > 0 else "PUT 📉"
                         except: continue
                     
-                    if best_pair and best_score >= 0.12: 
+                    if best_pair and best_score >= 0.10: 
                         trade_t = (now + datetime.timedelta(minutes=1)).strftime("%H:%M:00")
                         active_trade = {"pair": best_pair, "time": trade_t}
                         last_sig_time = time.time()
                         
                         msg = (f"🎯 *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n💎 *Pair:* {best_pair}\n📊 *Action:* {best_action}\n⏰ *Time:* {now.strftime('%H:%M:%S')}\n🎯 *Trade:* {trade_t}\n🚀 *Accuracy:* 98.5%\n━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
-                        threading.Thread(target=send_ultra_signal, args=(msg, best_pair)).start()
+                        threading.Thread(target=send_telegram, args=(msg, best_pair)).start()
                         gc.collect()
             time.sleep(1) 
-        except Exception:
-            time.sleep(2) # এরর আসলেও লুপ ব্রেক হবে না
+        except Exception: time.sleep(2)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
