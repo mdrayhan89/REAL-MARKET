@@ -13,7 +13,7 @@ from tradingview_ta import TA_Handler, Interval
 TOKEN = "8354111202:AAEqFLMoJ7W7AlwpfHibZbpusiWbnOcl5Xc"
 CHAT_ID = "-1003862859969"
 PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "EURJPY", "AUDUSD", "GBPJPY", "EURGBP", "USDCAD", "AUDCAD", "NZDUSD"]
-EXCHANGE = "OANDA" 
+EXCHANGE = "FX_IDC" # Source reset to FX_IDC
 SCREENER = "forex"
 INTERVAL = Interval.INTERVAL_1_MINUTE 
 TZ = pytz.timezone('Asia/Dhaka')
@@ -26,17 +26,18 @@ active_trade = {"pair": "Searching...", "time": "Waiting..."}
 session_history = []
 last_signal_time = 0 
 
-# --- RELIABLE SIGNAL SENDER ---
-def send_signal_with_retry(text, pair):
-    # ড্রয়িং আইকন রিমুভ করার কনফিগ
+# --- INSTANT SYNC SIGNAL SENDER ---
+def send_synced_signal(text, pair):
+    # Chart config to remove icons and toolbar
     chart_configs = {
         "symbol": f"{EXCHANGE}:{pair}",
         "interval": "1",
         "theme": "dark",
         "style": "1",
-        "hide_side_toolbar": True,
+        "hide_side_toolbar": True, # Removes left draw icons
         "hide_top_toolbar": True,
         "hide_legend": True,
+        "withdateranges": False,
         "backgroundColor": "#000000",
         "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies"]
     }
@@ -44,18 +45,22 @@ def send_signal_with_retry(text, pair):
     params = "&".join([f"{k}={str(v).lower()}" for k, v in chart_configs.items() if k != 'studies'])
     params += f"&studies={requests.utils.quote(json.dumps(chart_configs['studies']))}"
     chart_url = f"https://s.tradingview.com/widgetembed/?{params}"
+    
+    # Refreshing SS with timestamp to avoid old images
     photo_url = f"https://image.thum.io/get/width/1200/crop/750/noanimate/refresh/{int(time.time())}/{chart_url}"
     
     try:
-        # প্রথমে টেক্সট মেসেজ পাঠিয়ে দেওয়া হচ্ছে যাতে সিগন্যাল মিস না হয়
-        url_text = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-        requests.post(url_text, data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}, timeout=10)
-        
-        # তারপর ছবি পাঠানোর চেষ্টা (যদি ইমেজ জেনারেটর স্লো থাকে তবে এটি আলাদাভাবে যাবে)
-        url_photo = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
-        requests.post(url_photo, data={"chat_id": CHAT_ID, "photo": photo_url}, timeout=20)
+        # Sending photo and text together as a single message
+        url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
+        data = {
+            "chat_id": CHAT_ID,
+            "photo": photo_url,
+            "caption": text,
+            "parse_mode": "Markdown"
+        }
+        requests.post(url, data=data, timeout=30)
     except Exception as e:
-        print(f"Error sending signal: {e}")
+        print(f"Error: {e}")
 
 # --- UI CONTROL PANEL ---
 def get_html():
@@ -122,8 +127,8 @@ def signal_loop():
         try:
             if bot_running:
                 now = datetime.datetime.now(TZ)
-                # ১২ সেকেন্ড আগে এনালাইসিস শুরু এবং ১৮০ সেকেন্ডের গ্যাপ নিশ্চিত
-                if now.second == 48 and (time.time() - last_signal_time) > 180:
+                # Triggering at 48 seconds (12s before candle close)
+                if now.second == 48 and (time.time() - last_signal_time) > 175:
                     best_pair, best_score, best_action = None, 0, None
                     for pair in PAIRS:
                         try:
@@ -140,8 +145,8 @@ def signal_loop():
                         last_signal_time = time.time()
                         
                         msg_text = (f"🎯 *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n💎 *Pair:* {best_pair}\n📊 *Action:* {best_action}\n⏰ *Time:* {now.strftime('%H:%M:%S')}\n🎯 *Trade:* {trade_t}:00\n🚀 *Accuracy:* 98.5%\n━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
-                        # সিগন্যাল ডেলিভারি মেথড কল
-                        threading.Thread(target=send_signal_with_retry, args=(msg_text, best_pair)).start()
+                        # Sending text and photo together
+                        threading.Thread(target=send_synced_signal, args=(msg_text, best_pair)).start()
                         gc.collect()
         except: time.sleep(1)
         time.sleep(1)
