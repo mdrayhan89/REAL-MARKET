@@ -13,7 +13,7 @@ from tradingview_ta import TA_Handler, Interval
 TOKEN = "8354111202:AAEqFLMoJ7W7AlwpfHibZbpusiWbnOcl5Xc"
 CHAT_ID = "-1003862859969"
 PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "EURJPY", "AUDUSD", "GBPJPY", "EURGBP", "USDCAD", "AUDCAD", "NZDUSD"]
-EXCHANGE = "FX_IDC"
+EXCHANGE = "OANDA" # আপনার রিকুয়েস্ট অনুযায়ী OANDA সোর্স
 SCREENER = "forex"
 INTERVAL = Interval.INTERVAL_1_MINUTE 
 TZ = pytz.timezone('Asia/Dhaka')
@@ -24,35 +24,50 @@ bot_running = False
 stats = {"win": 0, "mtg": 0, "loss": 0}
 active_trade = {"pair": "Searching...", "time": "Waiting..."}
 session_history = []
-last_signal_time = 0 # বিরতি নিশ্চিত করার জন্য
+last_signal_time = 0 
 
-# --- CLEAN IMAGE GENERATOR ---
+# --- ULTIMATE CLEAN SS GENERATOR ---
 def send_clean_signal(text, pair):
-    # ড্রয়িং আইকন এবং সব ধরনের সাইডবার রিমুভ করার প্রফেশনাল কনফিগ
+    # ড্রয়িং আইকন এবং টুলবার পুরোপুরি রিমুভ করার কনফিগ
     chart_configs = {
         "symbol": f"{EXCHANGE}:{pair}",
         "interval": "1",
         "theme": "dark",
         "style": "1",
-        "hide_side_toolbar": True,  # বামের আইকন রিমুভ
-        "hide_top_toolbar": True,   # উপরের আইকন রিমুভ
-        "hide_legend": True,        # ইন্ডিকেটর নাম রিমুভ
+        "hide_side_toolbar": True,  # বামের সব আইকন বন্ধ
+        "hide_top_toolbar": True,   # উপরের টুলবার বন্ধ
+        "hide_legend": True,        # নাম এবং ড্রয়িং লেজেন্ড বন্ধ
         "withdateranges": False,
-        "allow_symbol_change": False,
         "save_image": False,
         "backgroundColor": "#000000",
+        "gridColor": "rgba(0, 0, 0, 0)", # গ্রিড লাইন অদৃশ্য করা হয়েছে
         "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies"]
     }
+    
+    # ক্যান্ডেলগুলোকে মোটা এবং স্পষ্ট দেখানোর সেটিংস
+    overrides = {
+        "mainSeriesProperties.candleStyle.upColor": "#00ff00",
+        "mainSeriesProperties.candleStyle.downColor": "#ff0000",
+        "mainSeriesProperties.candleStyle.drawBorder": True,
+        "mainSeriesProperties.candleStyle.borderUpColor": "#00ff00",
+        "mainSeriesProperties.candleStyle.borderDownColor": "#ff0000",
+        "mainSeriesProperties.candleStyle.wickUpColor": "#00ff00",
+        "mainSeriesProperties.candleStyle.wickDownColor": "#ff0000",
+        "paneProperties.background": "#000000"
+    }
+
     params = "&".join([f"{k}={str(v).lower()}" for k, v in chart_configs.items() if k != 'studies'])
     params += f"&studies={requests.utils.quote(json.dumps(chart_configs['studies']))}"
+    params += f"&overrides={requests.utils.quote(json.dumps(overrides))}"
+    
     chart_url = f"https://s.tradingview.com/widgetembed/?{params}"
     
-    # থাস্ব নেইল জেনারেটর (No Draw Icons)
-    photo_url = f"https://image.thum.io/get/width/1200/crop/700/noanimate/refresh/{int(time.time())}/{chart_url}"
+    # হাই রেজোলিউশন স্ক্রিনশট যা আইকন ব্লক করবে
+    photo_url = f"https://image.thum.io/get/width/1200/crop/750/noanimate/refresh/{int(time.time())}/{chart_url}"
     
     try:
         url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
-        requests.post(url, data={"chat_id": CHAT_ID, "photo": photo_url, "caption": text, "parse_mode": "Markdown"}, timeout=30)
+        requests.post(url, data={"chat_id": CHAT_ID, "photo": photo_url, "caption": text, "parse_mode": "Markdown"}, timeout=35)
     except:
         pass
 
@@ -121,26 +136,26 @@ def signal_loop():
         try:
             if bot_running:
                 now = datetime.datetime.now(TZ)
-                # ২ মিনিট ৩০ সেকেন্ড (১৫০ সেকেন্ড) বিরতি নিশ্চিত করা হয়েছে
-                if now.second == 48 and (time.time() - last_signal_time) > 150:
+                # ৩ মিনিট (১৮০ সেকেন্ড) বিরতি নিশ্চিত করা হয়েছে
+                if now.second == 48 and (time.time() - last_signal_time) > 180:
                     best_pair, best_score, best_action = None, 0, None
                     for pair in PAIRS:
                         try:
-                            h = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=0.6)
+                            # OANDA ডাটা সোর্স ব্যবহার
+                            h = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=0.8)
                             score = h.get_analysis().indicators['Recommend.All']
                             if abs(score) > best_score:
                                 best_score, best_pair = abs(score), pair
                                 best_action = "CALL 📈" if score > 0 else "PUT 📉"
                         except: continue
                     
-                    if best_pair and best_score >= 0.10:
+                    if best_pair and best_score >= 0.12:
                         trade_t = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
                         active_trade["pair"], active_trade["time"] = best_pair, f"{trade_t}:00"
                         last_signal_time = time.time()
                         
                         msg_text = (f"🎯 *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n💎 *Pair:* {best_pair}\n📊 *Action:* {best_action}\n⏰ *Time:* {now.strftime('%H:%M:%S')}\n🎯 *Trade:* {trade_t}:00\n🚀 *Accuracy:* 98.5%\n━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
                         threading.Thread(target=send_clean_signal, args=(msg_text, best_pair)).start()
-                        # মেমোরি রিলিজ
                         gc.collect()
         except: time.sleep(1)
         time.sleep(1)
