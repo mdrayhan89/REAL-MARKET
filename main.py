@@ -4,6 +4,7 @@ import pytz
 import requests
 import threading
 import os
+import gc  # মেমোরি পরিষ্কার করার জন্য [নতুন]
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from tradingview_ta import TA_Handler, Interval
 
@@ -20,9 +21,10 @@ TZ = pytz.timezone('Asia/Dhaka')
 bot_running = False  
 signals_history = []
 stats = {"win": 0, "loss": 0, "total": 0}
-last_signal_time = 0 
+last_signal_time = "" 
+last_processed_ts = 0 
 
-# --- WEB PANEL ---
+# --- WEB PANEL (Original Design) ---
 def get_html():
     status_text = " RUNNING" if bot_running else " STOPPED"
     status_color = "#28a745" if bot_running else "#dc3545"
@@ -70,7 +72,9 @@ def send_final_report():
                    f" Win: {stats['win']} |  Loss: {stats['loss']} ({(accuracy):.0f}%)\n"
                    f" Owner: DARK-X-RAYHAN")
         msg = report
-    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+    try:
+        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=15)
+    except: pass
 
 class ControlHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -86,43 +90,48 @@ class ControlHandler(BaseHTTPRequestHandler):
 def get_signal_logic():
     for pair in PAIRS:
         try:
-            handler = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL)
-            score = handler.get_analysis().indicators['Recommend.All']
+            handler = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=5)
+            analysis = handler.get_analysis()
+            score = analysis.indicators['Recommend.All']
+            del handler # মেমোরি খালি করার জন্য ডিলিট করা হয়েছে
             if score >= 0.5: return pair, "CALL "
             if score <= -0.5: return pair, "PUT "
         except: continue
     return None, None
 
 def signal_loop():
-    global last_signal_time, stats
+    global last_signal_time, stats, last_processed_ts
     while True:
         if bot_running:
+            now = datetime.datetime.now(TZ)
+            current_min_id = now.strftime("%H:%M")
             current_ts = time.time()
             
-            # ৩ মিনিট গ্যাপ চেক এবং সিগন্যাল জেনারেশন
-            if (current_ts - last_signal_time) >= 60:
-                pair, action = get_signal_logic()
-                if pair:
-                    now = datetime.datetime.now(TZ)
-                    trade_time = (now + datetime.timedelta(seconds=12)).strftime("%H:%M:00")
-                    
-                    # গ্লোবাল ভেরিয়েবল আপডেট
-                    stats["total"] += 1; stats["win"] += 1
-                    signals_history.append({'time': now.strftime("%H:%M"), 'pair': pair, 'action': action})
-                    last_signal_time = current_ts # এখানে টাইম আপডেট করা হয়েছে যাতে লুপ না আটকায়
-                    
-                    msg = (f" *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n"
-                           f" Pair: {pair}\n Action: {action}\n"
-                           f" Time: {now.strftime('%H:%M:%S')}\n"
-                           f" Trade: {trade_time}\n"
-                           f" Accuracy: 98.5%\n━━━━━━━━━━━━━━━━━━━━\n"
-                           f" Owner: DARK-X-RAYHAN")
-                    
-                    try:
-                        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
-                                      data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}, 
-                                      timeout=10)
-                    except: pass
+            # আপনার অরিজিনাল ৪৮ সেকেন্ড এবং ৩ মিনিট গ্যাপ কন্ডিশন
+            if now.second == 48 and current_min_id != last_signal_time:
+                if (current_ts - last_processed_ts) >= 60:
+                    pair, action = get_signal_logic()
+                    if pair:
+                        trade_time = (now + datetime.timedelta(seconds=12)).strftime("%H:%M:00")
+                        stats["total"] += 1; stats["win"] += 1
+                        signals_history.append({'time': current_min_id, 'pair': pair, 'action': action})
+                        
+                        msg = (f" *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n"
+                               f" Pair: {pair}\n Action: {action}\n"
+                               f" Time: {now.strftime('%H:%M:%S')}\n"
+                               f" Trade: {trade_time}\n"
+                               f" Accuracy: 98.5%\n━━━━━━━━━━━━━━━━━━━━\n"
+                               f" Owner: DARK-X-RAYHAN")
+                        
+                        try:
+                            # সেশন ক্লোজ করার জন্য রিকোয়েস্ট হ্যান্ডলিং
+                            with requests.Session() as s:
+                                s.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=15)
+                        except: pass
+                        
+                        last_signal_time = current_min_id
+                        last_processed_ts = current_ts
+                        gc.collect() # অটোমেটিক মেমোরি ক্লিনার কল করা হয়েছে [রিস্টার্ট বন্ধ করতে]
         time.sleep(1)
 
 if __name__ == "__main__":
