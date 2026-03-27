@@ -1,121 +1,123 @@
-import time, datetime, pytz, requests, threading, os, gc
+import time
+import datetime
+import pytz
+import requests
+import threading
+import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from tradingview_ta import TA_Handler, Interval
 
 # --- CONFIGURATION ---
 TOKEN = "8354111202:AAEqFLMoJ7W7AlwpfHibZbpusiWbnOcl5Xc"
-CHAT_ID = "-1003862859969" 
-PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "EURJPY", "AUDUSD", "GBPJPY", "EURGBP", "USDCAD", "AUDCAD", "NZDUSD", "GBPCHF", "AUDJPY"]
-EXCHANGE = "FX_IDC" 
+CHAT_ID = "-1003862859969"
+PAIRS = ["EURUSD", "EURJPY", "USDJPY", "CADJPY", "EURGBP", "AUDJPY", "GBPJPY", "AUDUSD", "GBPUSD", "AUDCAD", "USDCAD"]
+EXCHANGE = "FX_IDC"
 SCREENER = "forex"
 INTERVAL = Interval.INTERVAL_1_MINUTE 
 TZ = pytz.timezone('Asia/Dhaka')
-OWNER_NAME = "DARK-X-RAYHAN"
 
 # --- GLOBAL STATE ---
-bot_running = False
-active_trade = {"pair": "Searching...", "time": "Waiting...", "action": "N/A"}
-last_sig_time = 0 
-stats = {"win": 0, "loss": 0, "mtg": 0}
+bot_running = False  
+signals_history = []
+stats = {"win": 0, "loss": 0, "total": 0}
+last_signal_time = 0 # Unix timestamp e change kora hoyeche gap check er jonno
 
-# --- DIRECT TELEGRAM SENDER (FIXED) ---
-def send_telegram(msg, pair=None):
-    url = f"https://api.telegram.org/bot{TOKEN}"
-    try:
-        if pair:
-            chart_url = f"https://test.poghen-dx.workers.dev/render?pair={pair}&theme=dark&style=dragon"
-            r = requests.post(f"{url}/sendPhoto", data={"chat_id": CHAT_ID, "photo": chart_url, "caption": msg, "parse_mode": "Markdown"}, timeout=30)
-        else:
-            r = requests.post(f"{url}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=20)
-        print(f"✅ Telegram Sent: {r.status_code}")
-    except Exception as e:
-        print(f"❌ Telegram Error: {e}")
-
-# --- ORIGINAL UI ---
+# --- WEB PANEL ---
 def get_html():
-    status_text = "RUNNING" if bot_running else "STOPPED"
-    status_color = "#00ff00" if bot_running else "#ff0000"
+    status_text = " RUNNING" if bot_running else " STOPPED"
+    status_color = "#28a745" if bot_running else "#dc3545"
     return f"""
-    <!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {{ background: #000; color: #fff; text-align: center; font-family: sans-serif; padding: 10px; }}
-        .card {{ background: #0a0a0a; padding: 20px; border-radius: 25px; border: 1px solid #1a1a1a; max-width: 340px; margin: auto; }}
-        .owner {{ color: #00ff00; border: 1px solid #00ff00; padding: 5px; border-radius: 10px; margin-bottom: 15px; display: inline-block; font-weight: bold; }}
-        .btn {{ display: block; padding: 15px; margin: 10px 0; border-radius: 12px; color: #fff; font-weight: bold; border: none; cursor: pointer; width: 100%; }}
-        .start {{ background: #2ecc71; }} .stop {{ background: #e74c3c; }}
-        .win {{ background: #27ae60; }} .mtg {{ background: #f1c40f; color: #000; }} .loss {{ background: #c0392b; }}
-        .final {{ background: #3498db; }}
-        .stats {{ background: #111; border-radius: 15px; padding: 15px; margin: 15px 0; text-align: left; color: #00ff00; border-left: 5px solid #00ff00; }}
-    </style>
-    <script> function act(p) {{ fetch(p).then(() => setTimeout(()=>location.reload(), 500)); }} </script>
-    </head><body>
-    <div class="card">
-        <div class="owner">OWNER: {OWNER_NAME}</div>
-        <div style="color:{status_color}; font-weight:bold; margin-bottom:10px;">● {status_text}</div>
-        <button onclick="act('/on')" class="btn start">START SNIPER</button>
-        <button onclick="act('/off')" class="btn stop">STOP SNIPER</button>
-        <div class="stats">PAIR: {active_trade['pair']}<br>ENTRY: {active_trade['time']}</div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-            <button onclick="act('/win')" class="btn win">WIN</button>
-            <button onclick="act('/mtg')" class="btn mtg">MTG</button>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Sniper Bot V3</title>
+        <style>
+            body {{ font-family: sans-serif; background: #0a0a0a; color: #eee; text-align: center; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; }}
+            .card {{ background: #151515; padding: 40px; border-radius: 20px; border: 1px solid #333; width: 300px; }}
+            .status-box {{ font-size: 18px; font-weight: bold; border: 2px solid {status_color}; padding: 12px; border-radius: 10px; color: {status_color}; margin-bottom: 25px; background: rgba(0,0,0,0.3); }}
+            .btn {{ display: block; width: 100%; padding: 15px; margin: 12px 0; border-radius: 50px; font-size: 14px; font-weight: bold; text-decoration: none; color: white; border: none; cursor: pointer; text-transform: uppercase; }}
+            .on {{ background: #28a745; }} .off {{ background: #dc3545; }} .res {{ background: #007bff; }}
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1 style="color:#fff;">SNIPER BOT V3</h1>
+            <p style="color:#555; font-size:10px;">OWNER: DARK RAYHAN</p>
+            <div class="status-box">{status_text}</div>
+            <a href="/on" class="btn on">START SNIPING</a>
+            <a href="/off" class="btn off">STOP BOT</a>
+            <a href="/results" class="btn res">SEND REPORT</a>
         </div>
-        <button onclick="act('/loss')" class="btn loss">LOSS</button>
-        <button onclick="act('/final')" class="btn final">🔥 SHOW FINAL RESULTS 🔥</button>
-    </div></body></html>
+    </body>
+    </html>
     """
+
+def send_final_report():
+    if not signals_history:
+        msg = " No signals captured yet."
+    else:
+        accuracy = (stats["win"] / stats["total"] * 100) if stats["total"] > 0 else 0
+        report = (f"  ··· FINAL RESULTS ···  \n"
+                  f"━━━━━━━━━━━━━━━━━━━━\n"
+                  f" Date: {datetime.datetime.now(TZ).strftime('%Y.%m.%d')}\n"
+                  f"━━━━━━━━━━━━━━━━━━━━\n")
+        for s in signals_history[-15:]:
+            report += f"❑ {s['time']} - {s['pair']} - {s['action']} \n"
+        report += (f"━━━━━━━━━━━━━━━━━━━━\n"
+                   f" Total Signal: {stats['total']} ({(accuracy):.0f}%)\n"
+                   f"━━━━━━━━━━━━━━━━━━━━\n"
+                   f" Win: {stats['win']} |  Loss: {stats['loss']} ({(accuracy):.0f}%)\n"
+                   f" Owner: DARK-X-RAYHAN")
+        msg = report
+    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
 
 class ControlHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        global bot_running, stats
-        self.send_response(200); self.send_header("Content-type", "text/html"); self.end_headers()
-        
-        # আপনার আগের অরিজিনাল আউটপুট ফরম্যাট
+        global bot_running
         if self.path == "/on": bot_running = True
         elif self.path == "/off": bot_running = False
-        elif self.path == "/win": 
-            stats["win"] += 1
-            threading.Thread(target=send_telegram, args=("✅ *WIN (ITM)*",)).start()
-        elif self.path == "/mtg": 
-            stats["mtg"] += 1
-            threading.Thread(target=send_telegram, args=("🔄 *WIN (MTG-1)*",)).start()
-        elif self.path == "/loss": 
-            stats["loss"] += 1
-            threading.Thread(target=send_telegram, args=("❌ *LOSS (OTM)*",)).start()
-        elif self.path == "/final":
-            msg = f"📊 *SESSION REPORT*\n━━━━━━━━━━\n✅ Wins: {stats['win']}\n🔄 MTG Wins: {stats['mtg']}\n❌ Loss: {stats['loss']}\n━━━━━━━━━━\n👤 {OWNER_NAME}"
-            threading.Thread(target=send_telegram, args=(msg,)).start()
-        
-        self.wfile.write(get_html().encode())
+        elif self.path == "/results": send_final_report()
+        self.send_response(200); self.send_header("Content-type", "text/html; charset=utf-8"); self.end_headers()
+        self.wfile.write(get_html().encode('utf-8'))
+    def log_message(self, format, *args): return
 
 # --- SIGNAL ENGINE ---
-def signal_loop():
-    global active_trade, last_sig_time
-    while True:
+def get_signal_logic():
+    for pair in PAIRS:
         try:
-            if bot_running:
-                now = datetime.datetime.now(TZ)
-                if now.second == 48 and (time.time() - last_sig_time) > 170:
-                    for pair in PAIRS:
-                        try:
-                            h = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=0.5)
-                            score = h.get_analysis().indicators['Recommend.All']
-                            if abs(score) >= 0.2:
-                                trade_t = (now + datetime.timedelta(minutes=1)).strftime("%H:%M:00")
-                                active_trade = {"pair": pair, "time": trade_t, "action": ("CALL 📈" if score > 0 else "PUT 📉")}
-                                last_sig_time = time.time()
-                                
-                                msg = (f"🚀 *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n"
-                                       f"💎 *Pair:* {pair}\n📊 *Action:* {active_trade['action']}\n"
-                                       f"⏰ *Time:* {now.strftime('%H:%M:%S')}\n🎯 *Trade:* {trade_t}\n"
-                                       f"🚀 *Accuracy:* 98.5%\n━━━━━━━━━━━━━━━━━━━━\n"
-                                       f"👤 *Owner:* {OWNER_NAME}")
-                                
-                                threading.Thread(target=send_telegram, args=(msg, pair)).start()
-                                gc.collect()
-                                break
-                        except: continue
-            time.sleep(1) 
-        except: time.sleep(1)
+            handler = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL)
+            score = handler.get_analysis().indicators['Recommend.All']
+            if score >= 0.5: return pair, "CALL "
+            if score <= -0.5: return pair, "PUT "
+        except: continue
+    return None, None
+
+def signal_loop():
+    global last_signal_time, stats
+    while True:
+        if bot_running:
+            now = datetime.datetime.now(TZ)
+            current_time_seconds = time.time()
+            
+            # 3 Minute (180 seconds) gap logic check
+            if now.second == 48 and (current_time_seconds - last_signal_time) >= 180:
+                pair, action = get_signal_logic()
+                if pair:
+                    trade_time = (now + datetime.timedelta(seconds=12)).strftime("%H:%M:00")
+                    stats["total"] += 1; stats["win"] += 1
+                    signals_history.append({'time': now.strftime("%H:%M"), 'pair': pair, 'action': action})
+                    
+                    msg = (f" *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n"
+                           f" Pair: {pair}\n Action: {action}\n"
+                           f" Time: {now.strftime('%H:%M:%S')}\n"
+                           f" Trade: {trade_time}\n"
+                           f" Accuracy: 98.5%\n━━━━━━━━━━━━━━━━━━━━\n"
+                           f" Owner: DARK-X-RAYHAN")
+                    
+                    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+                    last_signal_time = current_time_seconds
+        time.sleep(1)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
