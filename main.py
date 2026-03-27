@@ -21,9 +21,8 @@ bot_running = False
 signals_history = []
 stats = {"win": 0, "loss": 0, "total": 0}
 last_signal_time = "" 
-last_processed_ts = 0 
 
-# --- WEB PANEL (No Changes) ---
+# --- WEB PANEL (Original Design) ---
 def get_html():
     status_text = " RUNNING" if bot_running else " STOPPED"
     status_color = "#28a745" if bot_running else "#dc3545"
@@ -71,8 +70,9 @@ def send_final_report():
                    f" Win: {stats['win']} |  Loss: {stats['loss']} ({(accuracy):.0f}%)\n"
                    f" Owner: DARK-X-RAYHAN")
         msg = report
-    # কানেকশন ক্লোজ করার জন্য ক্লোজ মেথড
-    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}).close()
+    try:
+        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}).close()
+    except: pass
 
 class ControlHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -88,32 +88,28 @@ class ControlHandler(BaseHTTPRequestHandler):
 def get_signal_logic():
     for pair in PAIRS:
         try:
-            handler = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL)
-            analysis = handler.get_analysis()
-            score = analysis.indicators['Recommend.All']
-            # হ্যান্ডলার অবজেক্ট ক্লিয়ার করা হয়েছে যাতে মেমোরি না আটকে
-            del handler
+            handler = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=5)
+            score = handler.get_analysis().indicators['Recommend.All']
             if score >= 0.5: return pair, "CALL "
             if score <= -0.5: return pair, "PUT "
         except: continue
     return None, None
 
 def signal_loop():
-    global last_signal_time, stats, last_processed_ts
+    global last_signal_time, stats
     while True:
-        if bot_running:
-            now = datetime.datetime.now(TZ)
-            current_min_id = now.strftime("%H:%M")
-            current_ts = time.time()
-            
-            # আপনার অরিজিনাল কন্ডিশন: ৪৮ সেকেন্ড + ৩ মিনিট গ্যাপ
-            if now.second == 48 and current_min_id != last_signal_time:
-                if (current_ts - last_processed_ts) >= 60:
+        try:
+            if bot_running:
+                now = datetime.datetime.now(TZ)
+                current_min = now.strftime("%H:%M")
+                
+                # আপনার অরিজিনাল কন্ডিশন: প্রতি মিনিটে ৪৮তম সেকেন্ডে চেক করবে
+                if now.second == 48 and current_min != last_signal_time:
                     pair, action = get_signal_logic()
                     if pair:
                         trade_time = (now + datetime.timedelta(seconds=12)).strftime("%H:%M:00")
                         stats["total"] += 1; stats["win"] += 1
-                        signals_history.append({'time': current_min_id, 'pair': pair, 'action': action})
+                        signals_history.append({'time': current_min, 'pair': pair, 'action': action})
                         
                         msg = (f" *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n"
                                f" Pair: {pair}\n Action: {action}\n"
@@ -122,17 +118,14 @@ def signal_loop():
                                f" Accuracy: 98.5%\n━━━━━━━━━━━━━━━━━━━━\n"
                                f" Owner: DARK-X-RAYHAN")
                         
-                        # টেলিক্রাম কানেকশন পাঠানোর পর সেশন ক্লোজ করা হচ্ছে
-                        try:
-                            resp = requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
-                                          data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}, 
-                                          timeout=15)
-                            resp.close()
-                        except: pass
-                        
-                        last_signal_time = current_min_id
-                        last_processed_ts = current_ts
-        time.sleep(1)
+                        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
+                                      data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}).close()
+                        last_signal_time = current_min
+            
+            time.sleep(1)
+        except Exception as e:
+            # এরর হলে লুপ থামবে না, ৫ সেকেন্ড পর আবার চেষ্টা করবে
+            time.sleep(5)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
