@@ -20,7 +20,7 @@ TZ = pytz.timezone('Asia/Dhaka')
 bot_running = False  
 signals_history = []
 stats = {"win": 0, "loss": 0, "total": 0}
-last_signal_time = 0 # Unix timestamp e change kora hoyeche gap check er jonno
+last_signal_time = 0 
 
 # --- WEB PANEL ---
 def get_html():
@@ -97,16 +97,19 @@ def signal_loop():
     global last_signal_time, stats
     while True:
         if bot_running:
-            now = datetime.datetime.now(TZ)
-            current_time_seconds = time.time()
+            current_ts = time.time()
             
-            # 3 Minute (180 seconds) gap logic check
-            if now.second == 48 and (current_time_seconds - last_signal_time) >= 180:
+            # ৩ মিনিট গ্যাপ চেক এবং সিগন্যাল জেনারেশন
+            if (current_ts - last_signal_time) >= 60:
                 pair, action = get_signal_logic()
                 if pair:
+                    now = datetime.datetime.now(TZ)
                     trade_time = (now + datetime.timedelta(seconds=12)).strftime("%H:%M:00")
+                    
+                    # গ্লোবাল ভেরিয়েবল আপডেট
                     stats["total"] += 1; stats["win"] += 1
                     signals_history.append({'time': now.strftime("%H:%M"), 'pair': pair, 'action': action})
+                    last_signal_time = current_ts # এখানে টাইম আপডেট করা হয়েছে যাতে লুপ না আটকায়
                     
                     msg = (f" *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n"
                            f" Pair: {pair}\n Action: {action}\n"
@@ -115,8 +118,11 @@ def signal_loop():
                            f" Accuracy: 98.5%\n━━━━━━━━━━━━━━━━━━━━\n"
                            f" Owner: DARK-X-RAYHAN")
                     
-                    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
-                    last_signal_time = current_time_seconds
+                    try:
+                        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
+                                      data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}, 
+                                      timeout=10)
+                    except: pass
         time.sleep(1)
 
 if __name__ == "__main__":
