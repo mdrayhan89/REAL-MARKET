@@ -23,6 +23,7 @@ session_history = []
 def send_telegram(msg, pair=None):
     try:
         if pair:
+            # একদম ক্লিন লুকের জন্য ওভাররাইড সেটিংস
             chart_configs = {
                 "symbol": f"{EXCHANGE}:{pair}",
                 "interval": "1",
@@ -30,7 +31,7 @@ def send_telegram(msg, pair=None):
                 "style": "1",
                 "hide_side_toolbar": "true",
                 "hide_top_toolbar": "true",
-                "hide_legend": "true",
+                "hide_legend": "false",        # পেয়ারের নাম ছোট করে থাকবে
                 "withdateranges": "false",
                 "allow_symbol_change": "false",
                 "saveimage": "false",
@@ -40,7 +41,7 @@ def send_telegram(msg, pair=None):
             params = "&".join([f"{k}={v}" for k, v in chart_configs.items()])
             widget_url = f"https://s.tradingview.com/widgetembed/?{params}"
             
-            # আপনার ছবির মতো ক্যান্ডেলগুলো ফোকাসড দেখানোর জন্য জুম লেভেল
+            # আপনার ছবির মতো ক্যান্ডেলগুলো বড় এবং ফোকাসড দেখানোর জন্য জুম লেভেল
             photo_url = f"https://image.thum.io/get/width/1000/crop/600/noanimate/refresh/{int(time.time())}/{widget_url}"
             
             payload = {"chat_id": CHAT_ID, "photo": photo_url, "caption": msg, "parse_mode": "Markdown"}
@@ -122,14 +123,14 @@ class ControlHandler(BaseHTTPRequestHandler):
             stats = {"win": 0, "loss": 0}; session_history = []
         self.send_response(200); self.end_headers()
 
-# --- HIGH ACCURACY SIGNAL ENGINE (0.2 SCORE) ---
+# --- 3-MINUTE GAP SIGNAL ENGINE ---
 def signal_loop():
     global active_trade, last_sig_time
     while True:
         try:
             if bot_running:
                 now = datetime.datetime.now(TZ)
-                # ৩ মিনিটের গ্যাপ রাখা হয়েছে
+                # ৩ মিনিটের গ্যাপ রাখা হয়েছে রেজাল্ট দেওয়ার সুবিধার জন্য
                 if now.second == 48 and (time.time() - last_sig_time) > 175:
                     best_pair, best_score, best_action = None, 0, None
                     for pair in PAIRS:
@@ -137,8 +138,8 @@ def signal_loop():
                             h = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=0.3)
                             score = h.get_analysis().indicators['Recommend.All']
                             
-                            # এখানে আপনার চাওয়া 0.2 স্কোর সেট করা হয়েছে
-                            if abs(score) > best_score and abs(score) > 0.2:
+                            # Accuracy বজায় রাখতে মিনিমাম ০.১ স্কোর সেট করা হয়েছে
+                            if abs(score) > best_score and abs(score) > 0.1:
                                 best_score, best_pair = abs(score), pair
                                 best_action = "CALL 📈" if score > 0 else "PUT 📉"
                         except: continue
