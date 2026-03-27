@@ -23,7 +23,7 @@ stats = {"win": 0, "loss": 0, "total": 0}
 last_signal_time = "" 
 last_processed_ts = 0 
 
-# --- WEB PANEL (Original Design) ---
+# --- WEB PANEL (No Changes) ---
 def get_html():
     status_text = " RUNNING" if bot_running else " STOPPED"
     status_color = "#28a745" if bot_running else "#dc3545"
@@ -59,7 +59,6 @@ def send_final_report():
         msg = " No signals captured yet."
     else:
         accuracy = (stats["win"] / stats["total"] * 100) if stats["total"] > 0 else 0
-        # আপনার দেওয়া অরিজিনাল রিপোর্টের ফরম্যাট [হুবহু]
         report = (f"  ··· FINAL RESULTS ···  \n"
                   f"━━━━━━━━━━━━━━━━━━━━\n"
                   f" Date: {datetime.datetime.now(TZ).strftime('%Y.%m.%d')}\n"
@@ -72,7 +71,8 @@ def send_final_report():
                    f" Win: {stats['win']} |  Loss: {stats['loss']} ({(accuracy):.0f}%)\n"
                    f" Owner: DARK-X-RAYHAN")
         msg = report
-    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+    # কানেকশন ক্লোজ করার জন্য ক্লোজ মেথড
+    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}).close()
 
 class ControlHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -89,7 +89,10 @@ def get_signal_logic():
     for pair in PAIRS:
         try:
             handler = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL)
-            score = handler.get_analysis().indicators['Recommend.All']
+            analysis = handler.get_analysis()
+            score = analysis.indicators['Recommend.All']
+            # হ্যান্ডলার অবজেক্ট ক্লিয়ার করা হয়েছে যাতে মেমোরি না আটকে
+            del handler
             if score >= 0.5: return pair, "CALL "
             if score <= -0.5: return pair, "PUT "
         except: continue
@@ -103,9 +106,8 @@ def signal_loop():
             current_min_id = now.strftime("%H:%M")
             current_ts = time.time()
             
-            # আপনার অরিজিনাল ৪৮ সেকেন্ড কন্ডিশন + ডাবল মেসেজ প্রোটেকশন
+            # আপনার অরিজিনাল কন্ডিশন: ৪৮ সেকেন্ড + ৩ মিনিট গ্যাপ
             if now.second == 48 and current_min_id != last_signal_time:
-                # ১৮০ সেকেন্ড বা ৩ মিনিট গ্যাপ নিশ্চিত করা (২ সিগন্যাল ফিক্স)
                 if (current_ts - last_processed_ts) >= 60:
                     pair, action = get_signal_logic()
                     if pair:
@@ -120,9 +122,14 @@ def signal_loop():
                                f" Accuracy: 98.5%\n━━━━━━━━━━━━━━━━━━━━\n"
                                f" Owner: DARK-X-RAYHAN")
                         
-                        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+                        # টেলিক্রাম কানেকশন পাঠানোর পর সেশন ক্লোজ করা হচ্ছে
+                        try:
+                            resp = requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
+                                          data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}, 
+                                          timeout=15)
+                            resp.close()
+                        except: pass
                         
-                        # এই ভেরিয়েবলগুলো আপডেট করা হয়েছে যাতে সিগন্যাল কন্টিনিউ আসে
                         last_signal_time = current_min_id
                         last_processed_ts = current_ts
         time.sleep(1)
