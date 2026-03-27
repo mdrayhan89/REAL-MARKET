@@ -1,10 +1,10 @@
-import time, datetime, pytz, requests, threading, os, gc, json
+import time, datetime, pytz, requests, threading, os, gc
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from tradingview_ta import TA_Handler, Interval
 
 # --- CONFIGURATION ---
 TOKEN = "8354111202:AAEqFLMoJ7W7AlwpfHibZbpusiWbnOcl5Xc"
-CHAT_ID = "-1003862859969"
+CHAT_ID = "-1003862859969" 
 PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "EURJPY", "AUDUSD", "GBPJPY", "EURGBP", "USDCAD", "AUDCAD", "NZDUSD", "GBPCHF", "AUDJPY"]
 EXCHANGE = "FX_IDC" 
 SCREENER = "forex"
@@ -17,42 +17,24 @@ bot_running = False
 active_trade = {"pair": "Searching...", "time": "Waiting...", "action": "N/A"}
 last_sig_time = 0 
 stats = {"win": 0, "loss": 0}
-session_history = []
+session = requests.Session()
 
-# --- THE DRAGON STYLE SCREENSHOT ENGINE ---
+# --- FAST DISPATCH ENGINE ---
 def send_telegram(msg, pair=None):
+    base_url = f"https://api.telegram.org/bot{TOKEN}"
     try:
         if pair:
-            # একদম ক্লিন লুকের জন্য ওভাররাইড সেটিংস
-            chart_configs = {
-                "symbol": f"{EXCHANGE}:{pair}",
-                "interval": "1",
-                "theme": "dark",
-                "style": "1",
-                "hide_side_toolbar": "true",
-                "hide_top_toolbar": "true",
-                "hide_legend": "false",        # পেয়ারের নাম ছোট করে থাকবে
-                "withdateranges": "false",
-                "allow_symbol_change": "false",
-                "saveimage": "false",
-                "backgroundColor": "rgba(0, 0, 0, 1)", # পিওর ব্ল্যাক
-                "gridColor": "rgba(0, 0, 0, 0)"       # গ্রিড রিমুভ
-            }
-            params = "&".join([f"{k}={v}" for k, v in chart_configs.items()])
-            widget_url = f"https://s.tradingview.com/widgetembed/?{params}"
-            
-            # আপনার ছবির মতো ক্যান্ডেলগুলো বড় এবং ফোকাসড দেখানোর জন্য জুম লেভেল
-            photo_url = f"https://image.thum.io/get/width/1000/crop/600/noanimate/refresh/{int(time.time())}/{widget_url}"
-            
+            chart_url = f"https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.html?symbol={EXCHANGE}:{pair}&width=1000&height=600&colorTheme=dark"
+            photo_url = f"https://image.thum.io/get/width/1000/crop/600/noanimate/refresh/{int(time.time())}/{chart_url}"
             payload = {"chat_id": CHAT_ID, "photo": photo_url, "caption": msg, "parse_mode": "Markdown"}
-            requests.post(f"https://api.telegram.org/bot{TOKEN}/sendPhoto", data=payload, timeout=30)
-            return
-
-        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
-                     data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=20)
+            r = session.post(f"{base_url}/sendPhoto", data=payload, timeout=25)
+            if r.status_code != 200:
+                session.post(f"{base_url}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+        else:
+            session.post(f"{base_url}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=15)
     except: pass
 
-# --- UI CONTROL PANEL (JAVASCRIPT / NO REFRESH) ---
+# --- ORIGINAL DARK UI (Back to Basics) ---
 def get_html():
     status_text = "RUNNING" if bot_running else "STOPPED"
     status_color = "#00ff00" if bot_running else "#ff0000"
@@ -68,9 +50,7 @@ def get_html():
         .final {{ background: #3498db; }}
         .stats {{ background: #111; border-radius: 15px; padding: 15px; margin: 15px 0; text-align: left; color: #00ff00; border-left: 5px solid #00ff00; }}
     </style>
-    <script>
-        function callBot(path) {{ fetch(path).then(() => {{ if(path === '/on' || path === '/off') location.reload(); }}); }}
-    </script>
+    <script> function callBot(path) {{ fetch(path).then(() => location.reload()); }} </script>
     </head><body>
     <div class="card">
         <div class="owner">OWNER: {OWNER_NAME}</div>
@@ -89,73 +69,41 @@ def get_html():
 
 class ControlHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        global bot_running, stats, session_history
+        global bot_running, stats
         if self.path == "/":
             self.send_response(200); self.send_header("Content-type", "text/html"); self.end_headers()
             self.wfile.write(get_html().encode()); return
         if self.path == "/on": bot_running = True
         elif self.path == "/off": bot_running = False
-        elif self.path == "/win": 
-            stats["win"] += 1
-            session_history.append(f"❑ {active_trade['time'][:5]} - {active_trade['pair']} - {active_trade['action']} ✅")
-        elif self.path == "/mtg": 
-            stats["win"] += 1
-            session_history.append(f"❑ {active_trade['time'][:5]} - {active_trade['pair']} - {active_trade['action']} ✅¹")
-        elif self.path == "/loss": 
-            stats["loss"] += 1
-            session_history.append(f"❑ {active_trade['time'][:5]} - {active_trade['pair']} - {active_trade['action']} ❌")
-        elif self.path == "/final":
-            total = stats["win"] + stats["loss"]
-            win_p = (stats["win"]/total*100) if total > 0 else 0
-            final_msg = (
-                f"💠 ✨ ···🔥 FINAL RESULTS 🔥··· ✨ 💠\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"📅 Date: {datetime.datetime.now(TZ).strftime('%Y.%m.%d')}\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                + "\n".join(session_history) +
-                f"\n━━━━━━━━━━━━━━━━━━━━\n"
-                f"🔮 Total Signal: {total} ({win_p:.0f}%)\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"🎯 Win: {stats['win']} | 💀 Loss: {stats['loss']} ({win_p:.0f}%)\n"
-                f"👤 Owner: {OWNER_NAME}"
-            )
-            threading.Thread(target=send_telegram, args=(final_msg,)).start()
-            stats = {"win": 0, "loss": 0}; session_history = []
+        elif self.path == "/win": stats["win"] += 1
+        elif self.path == "/loss": stats["loss"] += 1
         self.send_response(200); self.end_headers()
 
-# --- 3-MINUTE GAP SIGNAL ENGINE ---
+# --- FAST SIGNAL ENGINE (Score 0.2) ---
 def signal_loop():
     global active_trade, last_sig_time
     while True:
         try:
             if bot_running:
                 now = datetime.datetime.now(TZ)
-                # ৩ মিনিটের গ্যাপ রাখা হয়েছে রেজাল্ট দেওয়ার সুবিধার জন্য
-                if now.second == 48 and (time.time() - last_sig_time) > 175:
-                    best_pair, best_score, best_action = None, 0, None
+                if now.second == 48 and (time.time() - last_sig_time) > 170:
+                    best_pair, best_action = None, None
                     for pair in PAIRS:
                         try:
                             h = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=0.3)
                             score = h.get_analysis().indicators['Recommend.All']
-                            
-                            # Accuracy বজায় রাখতে মিনিমাম ০.১ স্কোর সেট করা হয়েছে
-                            if abs(score) > best_score and abs(score) > 0.1:
-                                best_score, best_pair = abs(score), pair
+                            if abs(score) >= 0.2: # আপনার সেট করা স্কোর ০.২
+                                best_pair = pair
                                 best_action = "CALL 📈" if score > 0 else "PUT 📉"
+                                break
                         except: continue
                     
                     if best_pair:
                         trade_t = (now + datetime.timedelta(minutes=1)).strftime("%H:%M:00")
                         active_trade = {"pair": best_pair, "time": trade_t, "action": best_action}
                         last_sig_time = time.time()
-                        
-                        msg = (f"🎯 *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n"
-                               f"💎 *Pair:* {best_pair}\n📊 *Action:* {best_action}\n"
-                               f"⏰ *Time:* {now.strftime('%H:%M:48')}\n🎯 *Trade:* {trade_t}\n"
-                               f"🚀 *Accuracy:* 98.5%\n━━━━━━━━━━━━━━━━━━━━\n👤 *Owner:* {OWNER_NAME}")
-                        
+                        msg = f"🎯 *CONFIRMED SIGNAL*\nPair: {best_pair}\nAction: {best_action}\nTrade: {trade_t}"
                         threading.Thread(target=send_telegram, args=(msg, best_pair)).start()
-                        gc.collect()
             time.sleep(1) 
         except: time.sleep(1)
 
