@@ -88,7 +88,7 @@ class ControlHandler(BaseHTTPRequestHandler):
 def get_signal_logic():
     for pair in PAIRS:
         try:
-            handler = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=5)
+            handler = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=10)
             score = handler.get_analysis().indicators['Recommend.All']
             if score >= 0.5: return pair, "CALL "
             if score <= -0.5: return pair, "PUT "
@@ -103,8 +103,8 @@ def signal_loop():
                 now = datetime.datetime.now(TZ)
                 current_min = now.strftime("%H:%M")
                 
-                # আপনার অরিজিনাল কন্ডিশন: প্রতি মিনিটে ৪৮তম সেকেন্ডে চেক করবে
-                if now.second == 48 and current_min != last_signal_time:
+                # ৪৮ থেকে ৫৮ সেকেন্ডের মধ্যে সিগন্যাল খুঁজবে যাতে মিস না হয়
+                if 48 <= now.second <= 58 and current_min != last_signal_time:
                     pair, action = get_signal_logic()
                     if pair:
                         trade_time = (now + datetime.timedelta(seconds=12)).strftime("%H:%M:00")
@@ -123,9 +123,8 @@ def signal_loop():
                         last_signal_time = current_min
             
             time.sleep(1)
-        except Exception as e:
-            # এরর হলে লুপ থামবে না, ৫ সেকেন্ড পর আবার চেষ্টা করবে
-            time.sleep(5)
+        except Exception:
+            time.sleep(2)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
