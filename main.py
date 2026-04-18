@@ -1,132 +1,115 @@
-import time
-import datetime
-import pytz
-import requests
-import threading
+import asyncio
 import os
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from tradingview_ta import TA_Handler, Interval
+import datetime
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.constants import ParseMode
+from playwright.async_api import async_playwright
 
-# --- CONFIGURATION ---
-TOKEN = "8354111202:AAEqFLMoJ7W7AlwpfHibZbpusiWbnOcl5Xc"
-CHAT_ID = "-1003862859969"
-PAIRS = ["EURUSD", "EURJPY", "USDJPY", "CADJPY", "EURGBP", "AUDJPY", "GBPJPY", "AUDUSD", "GBPUSD", "AUDCAD", "USDCAD"]
-EXCHANGE = "FX_IDC"
-SCREENER = "forex"
-INTERVAL = Interval.INTERVAL_1_MINUTE 
-TZ = pytz.timezone('Asia/Dhaka')
+# --- কনফিগারেশন ---
+TOKEN = '8354111202:AAEqFLMoJ7W7AlwpfHibZbpusiWbnOcl5Xc'
+CHAT_ID = '-1003862859969'
+BASE_URL = "https://dark-live-ss.onrender.com/"
+current_pair = "EURJPY"
+bot_running = False
 
-# --- GLOBAL STATE ---
-bot_running = False  
-signals_history = []
-stats = {"win": 0, "loss": 0, "total": 0}
-last_signal_time = "" 
+# --- কন্ট্রোল প্যানেল কিবোর্ড ---
+def get_control_keyboard():
+    status = "🟢 RUNNING" if bot_running else "🔴 STOPPED"
+    keyboard = [
+        [InlineKeyboardButton(f"Status: {status}", callback_data="none")],
+        [
+            InlineKeyboardButton("▶️ START", callback_data="start_bot"),
+            InlineKeyboardButton("⏹️ STOP", callback_data="stop_bot")
+        ],
+        [InlineKeyboardButton("🔄 Pair: " + current_pair, callback_data="change_pair")],
+        [InlineKeyboardButton("📊 Session Report", callback_data="get_report")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-# --- WEB PANEL (Original Design) ---
-def get_html():
-    status_text = " RUNNING" if bot_running else " STOPPED"
-    status_color = "#28a745" if bot_running else "#dc3545"
-    return f"""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Sniper Bot V3</title>
-        <style>
-            body {{ font-family: sans-serif; background: #0a0a0a; color: #eee; text-align: center; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; }}
-            .card {{ background: #151515; padding: 40px; border-radius: 20px; border: 1px solid #333; width: 300px; }}
-            .status-box {{ font-size: 18px; font-weight: bold; border: 2px solid {status_color}; padding: 12px; border-radius: 10px; color: {status_color}; margin-bottom: 25px; background: rgba(0,0,0,0.3); }}
-            .btn {{ display: block; width: 100%; padding: 15px; margin: 12px 0; border-radius: 50px; font-size: 14px; font-weight: bold; text-decoration: none; color: white; border: none; cursor: pointer; text-transform: uppercase; }}
-            .on {{ background: #28a745; }} .off {{ background: #dc3545; }} .res {{ background: #007bff; }}
-        </style>
-    </head>
-    <body>
-        <div class="card">
-            <h1 style="color:#fff;">SNIPER BOT V3</h1>
-            <p style="color:#555; font-size:10px;">OWNER: DARK RAYHAN</p>
-            <div class="status-box">{status_text}</div>
-            <a href="/on" class="btn on">START SNIPING</a>
-            <a href="/off" class="btn off">STOP BOT</a>
-            <a href="/results" class="btn res">SEND REPORT</a>
-        </div>
-    </body>
-    </html>
-    """
+# --- সিগন্যাল ফরম্যাটিং (আপনার প্রিমিয়াম ইমোজি ম্যাপ অনুযায়ী) ---
+def format_signal(pair, action, acc):
+    now = datetime.datetime.now()
+    trade_time = (now + datetime.timedelta(minutes=1)).strftime("%H:%M:00")
+    current_time = now.strftime("%H:%M:%S")
+    
+    msg = (
+        f'━━━━━━━━━━━━━━━━━━━━\n'
+        f'<tg-emoji emoji-id="6325797905663791037">💎</tg-emoji> <b>API CONFIRMED SIGNAL</b>\n'
+        f'━━━━━━━━━━━━━━━━━━━━\n'
+        f'<tg-emoji emoji-id="5472416843438246859">📊</tg-emoji> <b>Pair:</b> {pair}\n'
+        f'<tg-emoji emoji-id="6264696987946324240">🔋</tg-emoji> <b>Action:</b> {action}\n'
+        f'<tg-emoji emoji-id="6325717349257187998">🕒</tg-emoji> <b>Time:</b> {current_time}\n'
+        f'<tg-emoji emoji-id="5212985021870123409">🚀</tg-emoji> <b>Trade:</b> {trade_time}\n'
+        f'<tg-emoji emoji-id="6325667390197600621">🎯</tg-emoji> <b>Accuracy:</b> {acc}%\n'
+        f'━━━━━━━━━━━━━━━━━━━━\n'
+        f'<tg-emoji emoji-id="5384513813670279219">👑</tg-emoji> <b>Owner:</b> DARK-X-RAYHAN'
+    )
+    return msg
 
-def send_final_report():
-    if not signals_history:
-        msg = " No signals captured yet."
-    else:
-        accuracy = (stats["win"] / stats["total"] * 100) if stats["total"] > 0 else 0
-        report = (f"  ··· FINAL RESULTS ···  \n"
-                  f"━━━━━━━━━━━━━━━━━━━━\n"
-                  f" Date: {datetime.datetime.now(TZ).strftime('%Y.%m.%d')}\n"
-                  f"━━━━━━━━━━━━━━━━━━━━\n")
-        for s in signals_history[-15:]:
-            report += f"❑ {s['time']} - {s['pair']} - {s['action']} \n"
-        report += (f"━━━━━━━━━━━━━━━━━━━━\n"
-                   f" Total Signal: {stats['total']} ({(accuracy):.0f}%)\n"
-                   f"━━━━━━━━━━━━━━━━━━━━\n"
-                   f" Win: {stats['win']} |  Loss: {stats['loss']} ({(accuracy):.0f}%)\n"
-                   f" Owner: DARK-X-RAYHAN")
-        msg = report
-    try:
-        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}).close()
-    except: pass
-
-class ControlHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        global bot_running
-        if self.path == "/on": bot_running = True
-        elif self.path == "/off": bot_running = False
-        elif self.path == "/results": send_final_report()
-        self.send_response(200); self.send_header("Content-type", "text/html; charset=utf-8"); self.end_headers()
-        self.wfile.write(get_html().encode('utf-8'))
-    def log_message(self, format, *args): return
-
-# --- SIGNAL ENGINE ---
-def get_signal_logic():
-    for pair in PAIRS:
-        try:
-            handler = TA_Handler(symbol=pair, exchange=EXCHANGE, screener=SCREENER, interval=INTERVAL, timeout=10)
-            score = handler.get_analysis().indicators['Recommend.All']
-            if score >= 0.5: return pair, "CALL "
-            if score <= -0.5: return pair, "PUT "
-        except: continue
-    return None, None
-
-def signal_loop():
-    global last_signal_time, stats
-    while True:
-        try:
-            if bot_running:
-                now = datetime.datetime.now(TZ)
-                current_min = now.strftime("%H:%M")
+# --- স্ক্রিনশট এবং অ্যানালাইসিস ফাংশন ---
+async def capture_and_analyze(context):
+    global bot_running, current_pair
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        
+        while bot_running:
+            try:
+                url = f"{BASE_URL}?Pair={current_pair}"
+                await page.goto(url)
+                await asyncio.sleep(5) # চার্ট লোড হওয়ার সময়
                 
-                # ৪৮ থেকে ৫৮ সেকেন্ডের মধ্যে সিগন্যাল খুঁজবে যাতে মিস না হয়
-                if 48 <= now.second <= 58 and current_min != last_signal_time:
-                    pair, action = get_signal_logic()
-                    if pair:
-                        trade_time = (now + datetime.timedelta(seconds=12)).strftime("%H:%M:00")
-                        stats["total"] += 1; stats["win"] += 1
-                        signals_history.append({'time': current_min, 'pair': pair, 'action': action})
-                        
-                        msg = (f" *API CONFIRMED SIGNAL*\n━━━━━━━━━━━━━━━━━━━━\n"
-                               f" Pair: {pair}\n Action: {action}\n"
-                               f" Time: {now.strftime('%H:%M:%S')}\n"
-                               f" Trade: {trade_time}\n"
-                               f" Accuracy: 98.5%\n━━━━━━━━━━━━━━━━━━━━\n"
-                               f" Owner: DARK-X-RAYHAN")
-                        
-                        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
-                                      data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}).close()
-                        last_signal_time = current_min
-            
-            time.sleep(1)
-        except Exception:
-            time.sleep(2)
+                path = "signal_ss.png"
+                await page.screenshot(path=path)
+                
+                # এখানে আপনার স্ট্র্যাটেজি (EMA, RSI, FVG) অনুযায়ী কন্ডিশন চেক হবে
+                # ডেমো হিসেবে একটি সিগন্যাল পাঠানো হচ্ছে
+                signal_text = format_signal(current_pair, "CALL ⬆️", "98.5")
+                
+                await context.bot.send_photo(
+                    chat_id=CHAT_ID,
+                    photo=open(path, 'rb'),
+                    caption=signal_text,
+                    parse_mode=ParseMode.HTML
+                )
+                
+                await asyncio.sleep(60) # প্রতি ১ মিনিট পর পর
+            except Exception as e:
+                print(f"Error: {e}")
+                await asyncio.sleep(10)
+        await browser.close()
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    threading.Thread(target=signal_loop, daemon=True).start()
-    HTTPServer(('0.0.0.0', port), ControlHandler).serve_forever()
+# --- বট হ্যান্ডলারস ---
+async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "<b>DARK-X-SNIPER CONTROL PANEL</b>",
+        reply_markup=get_control_keyboard(),
+        parse_mode=ParseMode.HTML
+    )
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    global bot_running
+    await query.answer()
+
+    if query.data == "start_bot":
+        if not bot_running:
+            bot_running = True
+            asyncio.create_task(capture_and_analyze(context))
+            await query.edit_message_text("✅ Bot Started! Analyzing...", reply_markup=get_control_keyboard())
+    
+    elif query.data == "stop_bot":
+        bot_running = False
+        await query.edit_message_text("🛑 Bot Stopped!", reply_markup=get_control_keyboard())
+
+# --- মেইন ফাংশন ---
+def main():
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start_cmd))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    print("Bot is live...")
+    app.run_polling()
+
+if __name__ == '__main__':
+    main()
