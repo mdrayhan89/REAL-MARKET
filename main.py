@@ -11,7 +11,7 @@ from playwright.async_api import async_playwright
 
 app = FastAPI()
 
-# ১১টি পেয়ারের লিস্ট
+# ১১টি পেয়ারের ফুল লিস্ট
 ALL_PAIRS = ["XAUUSD", "EURJPY", "NZDUSD", "EURUSD", "GBPUSD", "AUDUSD", "USDCAD", "USDJPY", "EURGBP", "AUDJPY", "CADJPY"]
 
 state = {
@@ -20,13 +20,13 @@ state = {
     "chat_id": "-1003862859969",
     "premium_key": "DARK-X-RAYHAN",
     "owner_tg": "@mdrayhan89",
-    "stats": {"win": 0, "loss": 0, "mtg": 0, "refund": 0},
+    "stats": {"win": 0, "loss": 0},
     "session_history": [],
     "current_ss": "",
-    "user_type": "FREE USER"
+    "user_role": "FREE USER" # ইউজার টাইপ স্টোর করার জন্য
 }
 
-# --- নন-র‍্যান্ডম লজিক ---
+# --- নন-র‍্যান্ডম স্ট্র্যাটেজি ইঞ্জিন ---
 def get_signal_engine(pair):
     now = datetime.datetime.now()
     val = now.minute + now.second + len(pair)
@@ -74,7 +74,7 @@ async def main_ui():
     <html>
     <head>
         <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>DARK-X-PRO V7.1</title>
+        <title>DARK-X-PRO V7.2</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
         <style>
@@ -92,16 +92,16 @@ async def main_ui():
 
         <div id="auth-screen" class="fixed inset-0 z-[100] bg-[#0b0e14] flex flex-col items-center justify-center p-6">
             <h1 class="text-3xl font-black mb-10 text-blue-500 italic">DARK SNIPER PRO</h1>
-            <button onclick="login('free')" class="w-full max-w-xs p-4 bg-slate-800 rounded-2xl font-bold mb-4">FREE ACCESS</button>
+            <button onclick="doLogin('FREE USER')" class="w-full max-w-xs p-4 bg-slate-800 rounded-2xl font-bold mb-4">FREE ACCESS</button>
             <input id="key-input" type="password" placeholder="Premium Key" class="w-full max-w-xs p-4 bg-slate-900 rounded-2xl mb-4 text-center border border-slate-800 outline-none">
-            <button onclick="login('premium')" class="w-full max-w-xs p-4 bg-blue-600 rounded-2xl font-bold">UNLOCK PREMIUM</button>
+            <button onclick="doLogin('PREMIUM')" class="w-full max-w-xs p-4 bg-blue-600 rounded-2xl font-bold">UNLOCK PREMIUM</button>
         </div>
 
         <div id="main-content" class="hidden">
             <div id="home-tab" class="tab-page">
                 <div class="glow-card">
                     <select id="pair-select" class="w-full p-4 bg-slate-900 rounded-xl mb-4 border border-slate-700 font-bold">{pair_opts}</select>
-                    <button id="gen-btn" onclick="generateSignal()" class="w-full p-4 bg-yellow-500 text-black font-black rounded-xl uppercase">Analyze Signal</button>
+                    <button id="gen-btn" onclick="generateSignal()" class="w-full p-4 bg-yellow-500 text-black font-black rounded-xl uppercase">Generate Signal</button>
                 </div>
                 <div class="glow-card">
                     <div id="chart-box" class="w-full aspect-video bg-black rounded-lg flex items-center justify-center border border-slate-800 text-[10px] text-slate-700">No Chart Loaded</div>
@@ -119,7 +119,7 @@ async def main_ui():
                 <div class="glow-card">
                     <h3 class="text-yellow-500 font-bold mb-6 uppercase text-sm">Telegram Settings</h3>
                     <div class="flex items-center justify-between p-4 bg-slate-900 rounded-xl border border-slate-800 mb-6">
-                        <span class="text-xs font-bold uppercase">Sending Status</span>
+                        <span class="text-xs font-bold">Status</span>
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" id="tg-toggle" class="sr-only" onchange="saveConfig()" checked>
                             <div class="toggle-bg block bg-slate-700 w-12 h-7 rounded-full"></div>
@@ -132,24 +132,25 @@ async def main_ui():
                 </div>
             </div>
 
-            <div id="history-tab" class="tab-page hidden">
-                <div class="glow-card"><div id="history-list" class="space-y-2 text-[10px]"></div></div>
-            </div>
-
             <div id="profile-tab" class="tab-page hidden text-center py-10">
                 <div class="w-20 h-20 bg-blue-600 rounded-full mx-auto mb-4 flex items-center justify-center text-2xl font-bold">R</div>
                 <h2 class="font-bold text-xl uppercase">Dark-X-Rayhan</h2>
-                <div id="u-type" class="text-blue-500 font-bold text-xs mb-8 uppercase">Free User</div>
+                <div id="display-role" class="text-blue-500 font-bold text-xs mb-8 uppercase tracking-widest">FREE USER</div>
+                
                 <div class="grid grid-cols-2 gap-4 px-4">
-                    <div class="bg-slate-800 p-4 rounded-xl">
+                    <div class="bg-slate-800 p-4 rounded-xl border border-slate-700">
                         <p class="text-2xl font-black text-blue-500" id="p-win">0</p>
-                        <p class="text-[9px] uppercase">Total Win</p>
+                        <p class="text-[9px] uppercase">Win Count</p>
                     </div>
-                    <div class="bg-slate-800 p-4 rounded-xl">
+                    <div class="bg-slate-800 p-4 rounded-xl border border-slate-700">
                         <p class="text-2xl font-black text-red-500" id="p-loss">0</p>
-                        <p class="text-[9px] uppercase">Total Loss</p>
+                        <p class="text-[9px] uppercase">Loss Count</p>
                     </div>
                 </div>
+            </div>
+
+            <div id="history-tab" class="tab-page hidden">
+                <div class="glow-card"><div id="history-list" class="space-y-2 text-[10px]"></div></div>
             </div>
         </div>
 
@@ -161,11 +162,15 @@ async def main_ui():
         </nav>
 
         <script>
-            async function login(m) {{
-                if(m === 'premium') {{
+            async function doLogin(role) {{
+                if(role === 'PREMIUM') {{
                     const key = document.getElementById('key-input').value;
                     if(key !== 'DARK-X-RAYHAN') return alert('Invalid Key');
-                    document.getElementById('u-type').innerText = '💎 Premium User';
+                    document.getElementById('display-role').innerText = '💎 PREMIUM USER';
+                    await fetch('/api/set_role?role=PREMIUM');
+                }} else {{
+                    document.getElementById('display-role').innerText = '👤 FREE USER';
+                    await fetch('/api/set_role?role=FREE USER');
                 }}
                 document.getElementById('auth-screen').classList.add('hidden');
                 document.getElementById('main-content').classList.remove('hidden');
@@ -193,25 +198,31 @@ async def main_ui():
                 setTimeout(async () => {{
                     const r = await fetch('/api/get_ss');
                     const d = await r.json();
-                    if(d.ss) document.getElementById('chart-box').innerHTML = `<img src="data:image/png;base64,${{d.ss}}" class="w-full">`;
-                    document.getElementById('gen-btn').innerText = "Analyze Signal";
+                    if(d.ss) document.getElementById('chart-box').innerHTML = `<img src="data:image/png;base64,${{d.ss}}" class="w-full rounded">`;
+                    document.getElementById('gen-btn').innerText = "Generate Signal";
                 }}, 3000);
             }}
 
             async function record(type) {{
-                const pair = document.getElementById('pair-select').value;
-                await fetch(`/api/record?type=${{type}}&pair=${{pair}}`);
-                const r = await fetch('/api/get_stats');
-                const s = await r.json();
+                const p = document.getElementById('pair-select').value;
+                await fetch(`/api/record?type=${{type}}&pair=${{p}}`);
+                const res = await fetch('/api/get_stats');
+                const s = await res.json();
                 document.getElementById('p-win').innerText = s.win;
                 document.getElementById('p-loss').innerText = s.loss;
             }}
 
-            async function sendFinalReport() {{ await fetch('/api/report'); alert('Sent!'); }}
+            async function sendFinalReport() {{ await fetch('/api/report'); alert('Partial Sent!'); }}
         </script>
     </body>
     </html>
     """
+
+# --- APIs ---
+@app.get("/api/set_role")
+async def set_role(role: str):
+    state["user_role"] = role
+    return {"ok": True}
 
 @app.get("/api/update_config")
 async def update_config(enabled: str, token: str, chat: str):
@@ -238,7 +249,7 @@ async def api_record(type: str, pair: str):
     
     if state["telegram_enabled"] and state["bot_token"]:
         bot = Bot(token=state["bot_token"])
-        msg = f"========== 𝗥𝗘𝗦𝗨𝗟𝗧 ===========\n\n{pair} | {now}\nRESULT: {type.upper()}\n\nWIN: {state['stats']['win']} | LOSS: {state['stats']['loss']}"
+        msg = f"========== 𝗥𝗘𝗦𝗨𝗟𝗧 ===========\n\nPAIR: {pair}\nTIME: {now}\nRESULT: {type.upper()}\n\nWIN: {state['stats']['win']} | LOSS: {state['stats']['loss']}"
         try: await bot.send_message(state["chat_id"], msg)
         except: pass
     return {"ok": True}
