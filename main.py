@@ -1,146 +1,169 @@
 import asyncio
 import datetime
+import io
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from telegram import Bot
 from telegram.constants import ParseMode
 from playwright.async_api import async_playwright
 
-# --- কনফিগারেশন ---
-TOKEN = '8354111202:AAEqFLMoJ7W7AlwpfHibZbpusiWbnOcl5Xc'
-CHAT_ID = '-1003862859969'
-BASE_URL = "https://dark-live-ss.onrender.com/?Pair=eurjpy"
-
-bot = Bot(token=TOKEN)
 app = FastAPI()
 
-session_data = {"win": 0, "loss": 0, "mtg": 0, "status": "STOPPED", "pair": "EURJPY"}
+# --- গ্লোবাল কনফিগারেশন ---
+config = {
+    "bot_token": "8354111202:AAEqFLMoJ7W7AlwpfHibZbpusiWbnOcl5Xc",
+    "chat_id": "-1003862859969",
+    "premium_key": "DARK-X-RAYHAN",
+    "telegram_enabled": True  # সেটিংস থেকে এটি কন্ট্রোল হবে
+}
 
-# --- প্রিমিয়াম স্টাইল সিগন্যাল আউটপুট (আপনার দেওয়া স্ক্রিনশটের মতো) ---
-def get_premium_caption(action, acc):
-    now = datetime.datetime.now()
-    trade_time = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
+user_sessions = {} 
+signal_history = []
+
+# --- ১ সেকেন্ডে সিগন্যাল ও এসএস পাঠানোর ইঞ্জিন ---
+async def send_ultra_fast_signal(pair, action):
+    # ডাইনামিক লিঙ্ক জেনারেশন
+    ss_url = f"https://dark-live-ss.onrender.com/?Pair={pair.lower()}"
     
-    return (
-        f"✿° ━━━━━━━━━━━━━ ✿°\n"
-        f"👑 <b>DARK-X-SNIPER V3.0</b> 👑\n"
-        f"— — — — — — — — — — — —\n"
-        f"┏━━━━━━━━━━━━━━━━━━━━┓\n"
-        f" <tg-emoji emoji-id='5472416843438246859'>📊</tg-emoji> <b>Pair:—</b> {session_data['pair']}\n"
-        f" <tg-emoji emoji-id='6325717349257187998'>⌛</tg-emoji> <b>TimeFrame:—</b> M1\n"
-        f" <tg-emoji emoji-id='5212985021870123409'>🚀</tg-emoji> <b>TradeTime:—</b> {trade_time}\n"
-        f" <tg-emoji emoji-id='6264696987946324240'>🔋</tg-emoji> <b>Direction:—</b> {action}\n"
-        f"┗━━━━━━━━━━━━━━━━━━━━┛\n"
-        f"💎 <b>Payout:—</b> 87% 📈 <b>Trend:—</b> Bullish\n"
-        f" • ────── ✾ ────── •\n"
-        f"😈 <b>DARK-X-RAYHAN QUOTEX TRADING</b>"
-    )
-
-# --- সুপার ফাস্ট অটো ইঞ্জিন ---
-async def auto_engine():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        # ল্যাটেন্সি কমানোর জন্য অপ্টিমাইজড ব্রাউজার কন্টেক্সট
-        context = await browser.new_context(viewport={'width': 1280, 'height': 720})
+        context = await browser.new_context(viewport={'width': 1000, 'height': 600})
         page = await context.new_page()
         
-        while session_data["status"] == "RUNNING":
-            try:
-                # পেজ লোড হওয়া পর্যন্ত অপেক্ষা
-                await page.goto(BASE_URL, wait_until="networkidle")
-                
-                # স্ক্রিনশট এবং ক্যাপশন প্রসেসিং একসাথে (Zero Delay)
-                ss_bytes = await page.screenshot(type='png')
-                caption_text = get_premium_caption("CALL ⬆️", "98.5")
-                
-                # ফটো এবং টেক্সট ১টি রিকোয়েস্টে পাঠানো (এতে দেরি হয় না)
-                await bot.send_photo(
-                    chat_id=CHAT_ID,
-                    photo=ss_bytes,
-                    caption=caption_text,
-                    parse_mode=ParseMode.HTML
-                )
-                
-                await asyncio.sleep(60) # ক্যান্ডেল ক্লোজিং টাইম
-            except Exception as e:
-                print(f"Error: {e}")
-                await asyncio.sleep(5)
-        await browser.close()
+        try:
+            # পেজ লোড এবং স্ক্রিনশট (Zero Delay logic)
+            await page.goto(ss_url, wait_until="networkidle")
+            ss_bytes = await page.screenshot(type='png')
+            
+            now = datetime.datetime.now()
+            trade_time = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
+            
+            # প্রিমিয়াম আউটপুট ফরম্যাট
+            caption = (
+                f"✿° ━━━━━━━━━━━━━ ✿°\n"
+                f"👑 <b>DARK-X-SNIPER V3.0</b> 👑\n"
+                f"— — — — — — — — — — — —\n"
+                f"┏━━━━━━━━━━━━━━━━━━━━┓\n"
+                f" <tg-emoji emoji-id='5472416843438246859'>📊</tg-emoji> <b>Pair:—</b> {pair}\n"
+                f" <tg-emoji emoji-id='6325717349257187998'>⌛</tg-emoji> <b>TimeFrame:—</b> M1\n"
+                f" <tg-emoji emoji-id='5212985021870123409'>🚀</tg-emoji> <b>TradeTime:—</b> {trade_time}\n"
+                f" <tg-emoji emoji-id='6264696987946324240'>🔋</tg-emoji> <b>Direction:—</b> {action}\n"
+                f"┗━━━━━━━━━━━━━━━━━━━━┛\n"
+                f" • ────── ✾ ────── •\n"
+                f"😈 <b>DARK-X-RAYHAN QUOTEX</b>"
+            )
 
-# --- ওয়েব কন্ট্রোল প্যানেল ---
+            bot = Bot(token=config["bot_token"])
+            await bot.send_photo(
+                chat_id=config["chat_id"],
+                photo=ss_bytes,
+                caption=caption,
+                parse_mode=ParseMode.HTML
+            )
+        finally:
+            await browser.close()
+
+# --- মডার্ন ইউআই কন্ট্রোল প্যানেল ---
 @app.get("/", response_class=HTMLResponse)
-async def get_panel():
+async def home():
     return """
     <!DOCTYPE html>
-    <html>
+    <html lang="en">
     <head>
         <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>DARK-X-PRO PANEL</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
         <style>
-            body { background: #000; color: #fff; font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-            .container { background: #111; padding: 25px; border-radius: 25px; border: 1px solid #333; width: 300px; text-align: center; }
-            .owner { color: #0f0; border: 1px solid #0f0; border-radius: 20px; padding: 5px 20px; font-size: 11px; margin-bottom: 15px; display: inline-block; }
-            button { width: 100%; padding: 15px; margin: 6px 0; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; color: #fff; }
-            .btn-start { background: #2ecc71; } .btn-stop { background: #e74c3c; }
-            .btn-win { background: #27ae60; width: 48%; float: left; }
-            .btn-mtg { background: #f1c40f; width: 48%; float: right; color: #000; }
-            .btn-loss { background: #c0392b; margin-top: 10px; }
-            .btn-result { background: #3498db; margin-top: 15px; }
-            .status { margin: 15px 0; font-weight: bold; color: red; }
+            body { background: #0b0e14; color: #fff; font-family: sans-serif; }
+            .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+            .nav-active { color: #3b82f6; border-top: 2px solid #3b82f6; }
         </style>
     </head>
-    <body>
-        <div class="container">
-            <div class="owner">OWNER: DARK-X-RAYHAN</div>
-            <div class="status" id="st">● STOPPED</div>
-            <button class="btn-start" onclick="send('start')">START SNIPER</button>
-            <button class="btn-stop" onclick="send('stop')">STOP SNIPER</button>
-            <div style="margin: 15px 0; background: #1a1a1a; padding: 10px; border-radius: 10px; font-size: 12px; border-left: 3px solid #0f0;">
-                PAIR: EURJPY | MODE: FAST AUTO
-            </div>
-            <div style="overflow: hidden;">
-                <button class="btn-win" onclick="send('win')">WIN</button>
-                <button class="btn-mtg" onclick="send('mtg')">MTG</button>
-            </div>
-            <button class="btn-loss" onclick="send('loss')">LOSS</button>
-            <button class="btn-result" onclick="send('show_results')">🔥 SHOW FINAL RESULTS 🔥</button>
+    <body class="pb-24">
+        <div id="auth" class="fixed inset-0 z-50 bg-[#0b0e14] flex flex-col items-center justify-center p-6">
+            <h2 class="text-xl font-bold mb-6">ACCESS KEY REQUIRED</h2>
+            <input id="key" type="password" placeholder="Enter Key" class="w-full max-w-xs p-4 glass rounded-xl mb-4 text-center">
+            <button onclick="login()" class="w-full max-w-xs p-4 bg-blue-600 rounded-xl font-bold">UNLOCKED PANEL</button>
         </div>
+
+        <div id="panel" class="hidden p-4">
+            <div id="home" class="tab-content">
+                <div class="glass p-6 rounded-2xl mb-4">
+                    <label class="text-xs text-blue-400 font-bold uppercase">Market Selection</label>
+                    <select id="pair" class="w-full p-4 glass rounded-xl mt-2 mb-4">
+                        <option value="EURJPY">EURJPY</option>
+                        <option value="XAUUSD">XAUUSD (GOLD)</option>
+                        <option value="NZDUSD">NZDUSD</option>
+                        <option value="AUTO">AUTO MODE (2 MIN)</option>
+                    </select>
+                    <button id="genBtn" onclick="generate()" class="w-full p-5 bg-yellow-500 text-black font-black rounded-2xl">GENERATE & SEND SS</button>
+                    <div id="cool" class="hidden mt-4 text-center text-red-500 font-bold">Next Signal In: <span id="sec">120</span>s</div>
+                </div>
+                <div class="glass rounded-2xl p-4 h-48 flex items-center justify-center border-dashed border-2 border-slate-700">
+                    <p class="text-slate-500">Live API Chart Preview</p>
+                </div>
+            </div>
+
+            <div id="settings" class="tab-content hidden">
+                <div class="glass p-6 rounded-2xl">
+                    <h3 class="font-bold mb-4">Telegram Bot Settings</h3>
+                    <div class="flex justify-between items-center glass p-4 rounded-xl">
+                        <span>Send Photo with Signal</span>
+                        <input type="checkbox" checked class="w-6 h-6">
+                    </div>
+                </div>
+            </div>
+
+            <div id="profile" class="tab-content hidden text-center p-10">
+                <div class="w-24 h-24 bg-blue-600 rounded-full mx-auto mb-4 flex items-center justify-center text-3xl font-bold">R</div>
+                <h2 class="text-2xl font-bold">DARK-X-RAYHAN</h2>
+                <p class="text-blue-400">@mdrayhan89</p>
+            </div>
+        </div>
+
+        <nav class="fixed bottom-0 left-0 right-0 glass flex justify-around p-3 border-t border-slate-800">
+            <button onclick="tab('home')" class="nav-btn nav-active"><i class="fas fa-home"></i></button>
+            <button onclick="tab('settings')" class="nav-btn"><i class="fas fa-cog"></i></button>
+            <button onclick="tab('profile')" class="nav-btn"><i class="fas fa-user"></i></button>
+        </nav>
+
         <script>
-            async function send(cmd) {
-                const s = document.getElementById('st');
-                if(cmd === 'start') { s.style.color = '#0f0'; s.innerText = '● RUNNING'; }
-                if(cmd === 'stop') { s.style.color = 'red'; s.innerText = '● STOPPED'; }
-                await fetch(`/api/command?type=${cmd}`);
+            function login() {
+                if(document.getElementById('key').value === 'DARK-X-RAYHAN') {
+                    document.getElementById('auth').classList.add('hidden');
+                    document.getElementById('panel').classList.remove('hidden');
+                } else { alert('Invalid Key'); }
+            }
+            function tab(t) {
+                document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+                document.getElementById(t).classList.remove('hidden');
+            }
+            async function generate() {
+                const p = document.getElementById('pair').value;
+                document.getElementById('genBtn').disabled = true;
+                const res = await fetch(`/api/send?pair=${p}`);
+                if(p !== 'AUTO') startTimer();
+            }
+            function startTimer() {
+                document.getElementById('cool').classList.remove('hidden');
+                let s = 120;
+                const i = setInterval(() => {
+                    s--; document.getElementById('sec').innerText = s;
+                    if(s<=0) { clearInterval(i); document.getElementById('genBtn').disabled = false; document.getElementById('cool').classList.add('hidden'); }
+                }, 1000);
             }
         </script>
     </body>
     </html>
     """
 
-@app.get("/api/command")
-async def api_command(type: str):
-    global session_data
-    if type == "start" and session_data["status"] == "STOPPED":
-        session_data["status"] = "RUNNING"
-        asyncio.create_task(auto_engine())
-    elif type == "stop":
-        session_data["status"] = "STOPPED"
-    elif type in ["win", "loss", "mtg"]:
-        session_data[type] += 1
-    elif type == "show_results":
-        report = (
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📊 <b>FINAL SESSION REPORT</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"✅ Wins: {session_data['win']}\n"
-            f"❌ Loss: {session_data['loss']}\n"
-            f"🔄 MTG: {session_data['mtg']}\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"👑 <b>Owner:</b> DARK-X-RAYHAN"
-        )
-        await bot.send_message(CHAT_ID, report, parse_mode=ParseMode.HTML)
-        session_data.update({"win": 0, "loss": 0, "mtg": 0})
-    return {"ok": True}
+@app.get("/api/send")
+async def api_send(pair: str):
+    # ব্যাকগ্রাউন্ডে সুপার ফাস্ট সিগন্যাল পাঠানো হবে
+    asyncio.create_task(send_ultra_fast_signal(pair, "CALL ⬆️"))
+    return {"status": "processing"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=10000)
