@@ -26,8 +26,10 @@ state = {
 }
 
 def get_signal_logic(pair):
-    now = datetime.datetime.now()
+    # UTC +6 (Bangladesh Time) Logic
+    now = datetime.datetime.utcnow() + datetime.timedelta(hours=6)
     signal_time = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
+    
     accuracy = 96 + (now.minute % 4) 
     direction = "CALL ⬆️" if (now.minute + len(pair)) % 2 == 0 else "PUT ⬇️"
     strategies = ["EMA Cross", "Price Action", "Bollinger Break", "Support Zone", "RSI Reverse"]
@@ -42,15 +44,16 @@ async def send_signal_task(pair):
     
     async with async_playwright() as p:
         try:
-            # স্ক্রিনশট যাতে ফেইল না করে সেজন্য নির্দিষ্ট অপশন যোগ করা হয়েছে
-            browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'])
-            page = await browser.new_page()
+            # SS Fix: Browser settings updated for better rendering
+            browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
+            context = await browser.new_context(viewport={'width': 1280, 'height': 720})
+            page = await context.new_page()
             
-            # পেজ পুরোপুরি লোড হওয়ার জন্য 'networkidle' ব্যবহার করা হয়েছে
+            # SS Fix: Waiting for network to be completely idle
             await page.goto(ss_url, wait_until="networkidle", timeout=60000)
-            await asyncio.sleep(4) # চার্ট রেন্ডার হওয়ার জন্য অতিরিক্ত সময়
+            await asyncio.sleep(5) # Wait for chart to draw
             
-            ss_bytes = await page.screenshot()
+            ss_bytes = await page.screenshot(type='png')
             state["current_ss"] = base64.b64encode(ss_bytes).decode('utf-8')
             
             if state["telegram_enabled"] and state["bot_token"]:
@@ -58,7 +61,7 @@ async def send_signal_task(pair):
                 caption = (
                     f"🔥 <b>DARK-X PRO SIGNAL</b> 🔥\n\n"
                     f"📊 PAIR: {pair}\n"
-                    f"⏰ TIME: {signal_time} (Next Candle)\n"
+                    f"⏰ TIME: {signal_time} (UTC+6)\n"
                     f"🎯 STRATEGY: {strategy}\n"
                     f"💎 DIRECTION: {direction}\n"
                     f"✅ ACCURACY: {accuracy}%"
@@ -66,10 +69,10 @@ async def send_signal_task(pair):
                 await bot.send_photo(chat_id=state["chat_id"], photo=ss_bytes, caption=caption, parse_mode=ParseMode.HTML)
             await browser.close()
         except Exception as e: 
-            print(f"Playwright Error: {e}")
+            print(f"SS Error: {e}")
             if state["telegram_enabled"] and state["bot_token"]:
                 bot = Bot(token=state["bot_token"])
-                text_msg = f"🔥 <b>DARK-X PRO (Text Only)</b> 🔥\n\n📊 PAIR: {pair}\n⏰ TIME: {signal_time}\n💎 DIR: {direction}\n✅ ACC: {accuracy}%"
+                text_msg = f"🔥 <b>DARK-X PRO (Text)</b> 🔥\n\n📊 PAIR: {pair}\n⏰ TIME: {signal_time}\n💎 DIR: {direction}\n✅ ACC: {accuracy}%"
                 await bot.send_message(chat_id=state["chat_id"], text=text_msg, parse_mode=ParseMode.HTML)
 
 async def auto_scan_loop():
@@ -135,7 +138,7 @@ async def main_ui():
                 <div class="glow-card">
                     <div id="chart-box" class="w-full aspect-video bg-black rounded-lg flex items-center justify-center border border-slate-800 text-[10px] text-slate-700 italic">Live Preview Area</div>
                 </div>
-                <div class="glow-card grid grid-cols-2 gap-3 mb-3">
+                <div class="glow-card grid grid-cols-2 gap-3">
                     <button onclick="record('win')" class="btn-action">✓ WIN</button>
                     <button onclick="record('loss')" class="btn-action">✗ LOSS</button>
                     <button onclick="record('mtg')" class="btn-action">⇄ MTG</button>
@@ -145,10 +148,7 @@ async def main_ui():
             </div>
 
             <div id="history-tab" class="tab-page hidden">
-                <div class="glow-card">
-                    <h3 class="text-blue-500 font-bold mb-4 text-xs uppercase">Signal History</h3>
-                    <div id="hist-list" class="space-y-3 text-[11px]"></div>
-                </div>
+                <div class="glow-card"><h3 class="text-blue-500 font-bold mb-4 text-xs uppercase">Signal History</h3><div id="hist-list" class="space-y-3 text-[11px]"></div></div>
             </div>
 
             <div id="profile-tab" class="tab-page hidden text-center py-10">
@@ -184,14 +184,11 @@ async def main_ui():
 
         <script>
             let isTimerRunning = false;
-            
-            // টোকেন এবং চ্যাট আইডি সেভ করার জন্য ফিক্সড ফাংশন
             async function saveConfig() {{
                 const token = document.getElementById('bot-token').value;
                 const chat = document.getElementById('chat-id').value;
                 await fetch(`/api/update_config?token=${{token}}&chat=${{chat}}`);
             }}
-
             async function doLogin(role) {{
                 if(role === 'PREMIUM' && document.getElementById('key-input').value !== 'DARK-X-RAYHAN') return alert('Invalid Key!');
                 document.getElementById('auth-screen').classList.add('hidden');
@@ -199,29 +196,22 @@ async def main_ui():
                 document.getElementById('display-role').innerText = role === 'PREMIUM' ? '💎 PREMIUM USER' : '👤 FREE USER';
                 await fetch(`/api/set_role?role=${{role}}`);
             }}
-
             function switchTab(t) {{
                 document.querySelectorAll('.tab-page').forEach(p => p.classList.add('hidden'));
                 document.getElementById(t + '-tab').classList.remove('hidden');
             }}
-
             async function toggleAuto() {{
                 const res = await fetch('/api/toggle_auto');
                 const d = await res.json();
-                const b = document.getElementById('auto-btn');
-                b.innerText = d.active ? "🚀 AUTO: ON" : "🚀 AUTO: OFF";
-                b.style.background = d.active ? "#16a34a" : "#1e293b";
+                document.getElementById('auto-btn').innerText = d.active ? "🚀 AUTO: ON" : "🚀 AUTO: OFF";
             }}
-
             async function toggleTG() {{ fetch('/api/toggle_tg'); }}
-
             async function manualGenerate() {{
                 if(isTimerRunning) return;
                 const p = document.getElementById('pair-select').value;
                 await fetch(`/api/manual?pair=${{p}}`);
                 startTimer(120);
             }}
-
             function startTimer(seconds) {{
                 isTimerRunning = true;
                 const genBtn = document.getElementById('gen-btn');
@@ -242,7 +232,6 @@ async def main_ui():
                     }}
                 }}, 1000);
             }}
-
             async function updateStats() {{
                 const r = await fetch('/api/get_state');
                 const d = await r.json();
@@ -284,14 +273,6 @@ async def record_stat(type: str):
             bot = Bot(token=state["bot_token"])
             msg = f"📊 <b>SIGNAL RESULT</b>\n\nTYPE: {type.upper()}\nWIN: {state['stats']['win']} | LOSS: {state['stats']['loss']}"
             asyncio.create_task(bot.send_message(state["chat_id"], msg, parse_mode=ParseMode.HTML))
-    return {"ok": True}
-
-@app.get("/api/send_report")
-async def send_report():
-    if state["telegram_enabled"] and state["bot_token"]:
-        bot = Bot(token=state["bot_token"])
-        report = f"🏆 <b>FINAL SESSION REPORT</b>\n\n✅ WIN: {state['stats']['win']}\n❌ LOSS: {state['stats']['loss']}"
-        asyncio.create_task(bot.send_message(state["chat_id"], report, parse_mode=ParseMode.HTML))
     return {"ok": True}
 
 @app.get("/api/get_state")
