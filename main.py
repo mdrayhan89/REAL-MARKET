@@ -38,23 +38,20 @@ async def send_signal_task(pair):
     direction, accuracy, strategy, signal_time = get_signal_logic(pair)
     ss_url = f"https://dark-live-ss.onrender.com/?Pair={pair.lower()}"
     
-    # সিগন্যাল তৈরি হওয়ার সাথে সাথে হিস্টোরি আপডেট
     state["history"].insert(0, {"pair": pair, "time": signal_time, "dir": direction, "acc": accuracy})
     
     async with async_playwright() as p:
         try:
-            # স্ক্রিনশট দ্রুত নেওয়ার জন্য ব্রাউজার লঞ্চ
-            browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
+            browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'])
             page = await browser.new_page()
             
-            # পেজ লোড হওয়ার সাথে সাথে স্ক্রিনশট নিশ্চিত করা
+            # সিগন্যাল পাওয়ার সাথে সাথে পেজে গিয়ে networkidle হওয়ার জন্য অপেক্ষা
             await page.goto(ss_url, wait_until="networkidle", timeout=60000)
-            await asyncio.sleep(2) # চার্ট ঠিকমতো রেন্ডার হওয়ার জন্য সামান্য বিরতি
+            await asyncio.sleep(3) 
             
             ss_bytes = await page.screenshot()
             state["current_ss"] = base64.b64encode(ss_bytes).decode('utf-8')
             
-            # সিগন্যাল ডাটা রেন্ডার হওয়ার সাথে সাথেই টেলিগ্রামে ফটো পাঠানো
             if state["telegram_enabled"] and state["bot_token"]:
                 bot = Bot(token=state["bot_token"])
                 caption = (
@@ -66,17 +63,13 @@ async def send_signal_task(pair):
                     f"✅ ACCURACY: {accuracy}%"
                 )
                 await bot.send_photo(chat_id=state["chat_id"], photo=ss_bytes, caption=caption, parse_mode=ParseMode.HTML)
-            
             await browser.close()
         except Exception as e: 
-            print(f"Playwright Error: {e}")
-            # স্ক্রিনশট ফেইল করলেও টেক্সট সিগন্যাল যেন সাথে সাথেই যায়
+            print(f"Error: {e}")
             if state["telegram_enabled"] and state["bot_token"]:
                 bot = Bot(token=state["bot_token"])
                 text_msg = f"🔥 <b>DARK-X PRO SIGNAL (Text Only)</b> 🔥\n\n📊 PAIR: {pair}\n⏰ TIME: {signal_time}\n💎 DIR: {direction}\n✅ ACC: {accuracy}%"
                 await bot.send_message(chat_id=state["chat_id"], text=text_msg, parse_mode=ParseMode.HTML)
-
-# --- বাকি UI এবং API লজিক (আপনার অরিজিনাল কোড অনুযায়ী অপরিবর্তিত) ---
 
 async def auto_scan_loop():
     while True:
@@ -103,7 +96,7 @@ async def main_ui():
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
         <style>
             body {{ background: #0b0e14; color: #fff; font-family: sans-serif; }}
-            .glow-card {{ background: #151a21; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; margin-bottom: 15px; box-shadow: 0 0 10px rgba(0,0,0,0.5); }}
+            .glow-card {{ background: #151a21; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; margin-bottom: 15px; }}
             .hidden {{ display: none; }}
             .btn-action {{ background: #2563eb; color: white; font-weight: bold; padding: 12px; border-radius: 8px; width: 100%; font-size: 11px; }}
             .switch {{ position: relative; display: inline-block; width: 50px; height: 24px; }}
@@ -112,7 +105,6 @@ async def main_ui():
             .slider:before {{ position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }}
             input:checked + .slider {{ background-color: #2563eb; }}
             input:checked + .slider:before {{ transform: translateX(26px); }}
-            .disabled-btn {{ background: #1e293b !important; color: #64748b !important; cursor: not-allowed; }}
         </style>
     </head>
     <body class="pb-24 p-4">
@@ -138,25 +130,43 @@ async def main_ui():
                         <button id="gen-btn" onclick="manualGenerate()" class="w-full p-4 bg-yellow-500 text-black font-bold text-[12px] rounded-xl uppercase">Generate Signal</button>
                     </div>
                 </div>
-
                 <div class="glow-card">
                     <div id="chart-box" class="w-full aspect-video bg-black rounded-lg flex items-center justify-center border border-slate-800 text-[10px] text-slate-700 italic">Live Preview Area</div>
                 </div>
-
-                <div class="glow-card">
-                    <div class="grid grid-cols-2 gap-3 mb-3">
-                        <button onclick="record('win')" class="btn-action">✓ WIN</button>
-                        <button onclick="record('loss')" class="btn-action">✗ LOSS</button>
-                        <button onclick="record('mtg')" class="btn-action">⇄ MTG</button>
-                        <button onclick="record('refund')" class="btn-action bg-slate-700">↺ REFUND</button>
-                        <button onclick="sendReport()" class="col-span-2 p-3 bg-yellow-500 text-black font-bold rounded-lg text-[10px] uppercase">Send Final Report</button>
-                    </div>
+                <div class="glow-card grid grid-cols-2 gap-3">
+                    <button onclick="record('win')" class="btn-action">✓ WIN</button>
+                    <button onclick="record('loss')" class="btn-action">✗ LOSS</button>
+                    <button onclick="record('mtg')" class="btn-action">⇄ MTG</button>
+                    <button onclick="record('refund')" class="btn-action bg-slate-700">↺ REFUND</button>
+                    <button onclick="sendReport()" class="col-span-2 p-3 bg-yellow-500 text-black font-bold rounded-lg text-[10px] uppercase">Send Final Report</button>
                 </div>
             </div>
 
-            <div id="history-tab" class="tab-page hidden"><div class="glow-card"><h3 class="text-blue-500 font-bold mb-4 text-xs uppercase">Signal History</h3><div id="hist-list" class="space-y-3 text-[11px]"></div></div></div>
-            <div id="profile-tab" class="tab-page hidden text-center py-10"><div class="w-20 h-20 bg-blue-600 rounded-full mx-auto mb-4 flex items-center justify-center text-3xl font-bold">R</div><h2 class="font-bold text-xl uppercase tracking-tighter">Dark-X-Rayhan</h2><div id="display-role" class="text-blue-500 font-bold text-[10px] mb-8 uppercase tracking-widest">FREE USER</div></div>
-            <div id="settings-tab" class="tab-page hidden"><div class="glow-card"><div class="flex justify-between items-center mb-6"><span class="text-xs font-bold uppercase">Telegram Bot</span><label class="switch"><input type="checkbox" id="tg-check" checked onclick="toggleTG()"><span class="slider"></span></label></div></div></div>
+            <div id="history-tab" class="tab-page hidden">
+                <div class="glow-card"><h3 class="text-blue-500 font-bold mb-4 text-xs uppercase">Signal History</h3><div id="hist-list" class="space-y-3 text-[11px]"></div></div>
+            </div>
+
+            <div id="settings-tab" class="tab-page hidden">
+                <div class="glow-card">
+                    <div class="flex justify-between items-center mb-6"><span class="text-xs font-bold uppercase">Telegram Bot (ON/OFF)</span>
+                        <label class="switch"><input type="checkbox" id="tg-check" checked onclick="toggleTG()"><span class="slider"></span></label>
+                    </div>
+                    <input id="bot-token" type="text" class="w-full p-4 bg-slate-900 border border-slate-800 rounded-xl mb-4 text-xs" placeholder="Bot Token" value="{state['bot_token']}" onchange="saveConfig()">
+                    <input id="chat-id" type="text" class="w-full p-4 bg-slate-900 border border-slate-800 rounded-xl text-xs" placeholder="Chat ID" value="{state['chat_id']}" onchange="saveConfig()">
+                </div>
+            </div>
+
+            <div id="profile-tab" class="tab-page hidden text-center py-10">
+                <div class="w-20 h-20 bg-blue-600 rounded-full mx-auto mb-4 flex items-center justify-center text-3xl font-bold">R</div>
+                <h2 class="font-bold text-xl uppercase tracking-tighter">Dark-X-Rayhan</h2>
+                <div id="display-role" class="text-blue-500 font-bold text-[10px] mb-8 uppercase tracking-widest">FREE USER</div>
+                <div class="grid grid-cols-4 gap-2 px-1">
+                    <div class="bg-slate-800 p-2 rounded-lg"><p class="text-lg font-black" id="p-win">0</p><p class="text-[8px]">WIN</p></div>
+                    <div class="bg-slate-800 p-2 rounded-lg"><p class="text-lg font-black" id="p-loss">0</p><p class="text-[8px]">LOSS</p></div>
+                    <div class="bg-slate-800 p-2 rounded-lg"><p class="text-lg font-black" id="p-mtg">0</p><p class="text-[8px]">MTG</p></div>
+                    <div class="bg-slate-800 p-2 rounded-lg"><p class="text-lg font-black" id="p-ref">0</p><p class="text-[8px]">REF</p></div>
+                </div>
+            </div>
         </div>
 
         <nav class="fixed bottom-0 left-0 right-0 bg-[#151a21] border-t border-slate-800 flex justify-around p-3 z-[100]">
@@ -167,14 +177,16 @@ async def main_ui():
         </nav>
 
         <script>
-            let isTimerRunning = false;
+            async function saveConfig() {{
+                const token = document.getElementById('bot-token').value;
+                const chat = document.getElementById('chat-id').value;
+                await fetch(`/api/update_config?token=${{token}}&chat=${{chat}}`);
+            }}
             async function doLogin(role) {{
-                if(role === 'PREMIUM') {{
-                    const key = document.getElementById('key-input').value;
-                    if(key !== 'DARK-X-RAYHAN') return alert('Invalid Key!');
-                }}
+                if(role === 'PREMIUM' && document.getElementById('key-input').value !== 'DARK-X-RAYHAN') return alert('Invalid Key!');
                 document.getElementById('auth-screen').classList.add('hidden');
                 document.getElementById('main-content').classList.remove('hidden');
+                document.getElementById('display-role').innerText = role === 'PREMIUM' ? '💎 PREMIUM USER' : '👤 FREE USER';
                 fetch(`/api/set_role?role=${{role}}`);
             }}
             function switchTab(t) {{
@@ -186,42 +198,61 @@ async def main_ui():
                 const d = await res.json();
                 document.getElementById('auto-btn').innerText = d.active ? "🚀 AUTO: ON" : "🚀 AUTO: OFF";
             }}
+            async function toggleTG() {{ fetch('/api/toggle_tg'); }}
             async function manualGenerate() {{
-                if(isTimerRunning) return;
                 const p = document.getElementById('pair-select').value;
-                await fetch(`/api/manual?pair=${{p}}`);
-                startTimer(120);
+                fetch(`/api/manual?pair=${{p}}`);
             }}
-            function startTimer(s) {{
-                isTimerRunning = true;
-                const btn = document.getElementById('gen-btn');
-                btn.disabled = true;
-                let left = s;
-                const timer = setInterval(() => {{
-                    btn.innerText = "Wait: " + left;
-                    if(left-- <= 0) {{ clearInterval(timer); isTimerRunning = false; btn.disabled = false; btn.innerText = "Generate Signal"; }}
-                }}, 1000);
-            }}
-            async function updateStats() {{
+            async function record(type) {{ fetch(`/api/record?type=${{type}}`); }}
+            async function sendReport() {{ fetch('/api/send_report'); }}
+            async function updateUI() {{
                 const r = await fetch('/api/get_state');
                 const d = await r.json();
                 if(d.current_ss) document.getElementById('chart-box').innerHTML = `<img src="data:image/png;base64,${{d.current_ss}}" class="w-full rounded-lg">`;
+                document.getElementById('p-win').innerText = d.stats.win;
+                document.getElementById('p-loss').innerText = d.stats.loss;
+                document.getElementById('p-mtg').innerText = d.stats.mtg;
+                document.getElementById('p-ref').innerText = d.stats.refund;
+                document.getElementById('hist-list').innerHTML = d.history.map(h => `<div class="flex justify-between border-b border-slate-800 pb-2"><span><b>${{h.pair}}</b> (${{h.dir}})</span><span class="text-blue-500">${{h.time}}</span></div>`).join('');
             }}
-            setInterval(updateStats, 5000);
+            setInterval(updateUI, 5000);
         </script>
     </body>
     </html>
     """
 
-# --- API Endpoints (আপনার আগের কোড অনুযায়ী) ---
 @app.get("/api/set_role")
 async def set_role(role: str): state["user_role"] = role; return {"ok": True}
 
 @app.get("/api/toggle_auto")
 async def toggle_auto(): state["auto_scan_active"] = not state["auto_scan_active"]; return {"active": state["auto_scan_active"]}
 
+@app.get("/api/toggle_tg")
+async def toggle_tg(): state["telegram_enabled"] = not state["telegram_enabled"]; return {"ok": True}
+
+@app.get("/api/update_config")
+async def update_config(token: str, chat: str): state["bot_token"] = token; state["chat_id"] = chat; return {"ok": True}
+
 @app.get("/api/manual")
 async def manual_signal(pair: str): asyncio.create_task(send_signal_task(pair.upper())); return {"ok": True}
+
+@app.get("/api/record")
+async def record_stat(type: str):
+    if type in state["stats"]: 
+        state["stats"][type] += 1
+        if state["telegram_enabled"] and state["bot_token"]:
+            bot = Bot(token=state["bot_token"])
+            msg = f"📊 <b>SIGNAL RESULT</b>\n\nTYPE: {type.upper()}\nWIN: {state['stats']['win']} | LOSS: {state['stats']['loss']}"
+            asyncio.create_task(bot.send_message(state["chat_id"], msg, parse_mode=ParseMode.HTML))
+    return {"ok": True}
+
+@app.get("/api/send_report")
+async def send_report():
+    if state["telegram_enabled"] and state["bot_token"]:
+        bot = Bot(token=state["bot_token"])
+        report = f"🏆 <b>SESSION REPORT</b>\n\n✅ WIN: {state['stats']['win']}\n❌ LOSS: {state['stats']['loss']}"
+        asyncio.create_task(bot.send_message(state["chat_id"], report, parse_mode=ParseMode.HTML))
+    return {"ok": True}
 
 @app.get("/api/get_state")
 async def get_state(): return state
