@@ -11,7 +11,6 @@ from playwright.async_api import async_playwright
 
 app = FastAPI()
 
-# ১১টি পেয়ারের লিস্ট
 ALL_PAIRS = ["XAUUSD", "EURJPY", "NZDUSD", "EURUSD", "GBPUSD", "AUDUSD", "USDCAD", "USDJPY", "EURGBP", "AUDJPY", "CADJPY"]
 
 state = {
@@ -26,10 +25,8 @@ state = {
     "user_role": "FREE USER"
 }
 
-# --- ফিক্সড সিগন্যাল লজিক (Next Candle) ---
 def get_signal_logic(pair):
     now = datetime.datetime.now()
-    # ১১:১১ তে জেনারেট করলে ১১:১২ এর জন্য সিগন্যাল সেট করা
     signal_time = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
     accuracy = 96 + (now.minute % 4) 
     direction = "CALL ⬆️" if (now.minute + len(pair)) % 2 == 0 else "PUT ⬇️"
@@ -42,12 +39,11 @@ async def send_signal_task(pair):
     ss_url = f"https://dark-live-ss.onrender.com/?Pair={pair.lower()}"
     
     async with async_playwright() as p:
-        # সার্ভারে চালানোর জন্য --no-sandbox অত্যন্ত জরুরি
         browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
         page = await browser.new_page()
         try:
             await page.goto(ss_url, timeout=60000)
-            await asyncio.sleep(2) # স্ক্রিনশট নেওয়ার আগে লোড হওয়ার সময়
+            await asyncio.sleep(2) 
             ss_bytes = await page.screenshot()
             state["current_ss"] = base64.b64encode(ss_bytes).decode('utf-8')
             state["history"].insert(0, {"pair": pair, "time": signal_time, "dir": direction, "acc": accuracy})
@@ -66,7 +62,6 @@ async def send_signal_task(pair):
         except Exception as e: print(f"Error: {e}")
         finally: await browser.close()
 
-# ২ মিনিট অটো লুপ
 async def auto_scan_loop():
     while True:
         if state["auto_scan_active"]:
@@ -95,14 +90,13 @@ async def main_ui():
             .glow-card {{ background: #151a21; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; margin-bottom: 15px; box-shadow: 0 0 10px rgba(0,0,0,0.5); }}
             .hidden {{ display: none; }}
             .btn-action {{ background: #2563eb; color: white; font-weight: bold; padding: 12px; border-radius: 8px; width: 100%; font-size: 11px; }}
-            
-            /* Modern Toggle Switch */
             .switch {{ position: relative; display: inline-block; width: 50px; height: 24px; }}
             .switch input {{ opacity: 0; width: 0; height: 0; }}
             .slider {{ position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #334155; transition: .4s; border-radius: 24px; }}
             .slider:before {{ position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }}
             input:checked + .slider {{ background-color: #2563eb; }}
             input:checked + .slider:before {{ transform: translateX(26px); }}
+            .disabled-btn {{ background: #1e293b !important; color: #64748b !important; cursor: not-allowed; }}
         </style>
     </head>
     <body class="pb-24 p-4">
@@ -119,14 +113,14 @@ async def main_ui():
         <div id="main-content" class="hidden">
             <div id="home-tab" class="tab-page">
                 <div class="glow-card">
-                    <div class="flex gap-2">
-                        <button id="auto-btn" onclick="toggleAuto()" class="flex-1 p-4 bg-slate-800 rounded-xl font-bold text-[10px]">🚀 AUTO SCAN: OFF</button>
-                        <div class="flex-1">
-                            <select id="pair-select" class="w-full p-2 bg-slate-900 rounded-lg text-[10px] mb-1 font-bold border border-slate-700 outline-none">
+                    <div class="flex flex-col gap-2">
+                        <div class="flex gap-2">
+                            <button id="auto-btn" onclick="toggleAuto()" class="flex-1 p-4 bg-slate-800 rounded-xl font-bold text-[10px] uppercase">🚀 AUTO: OFF</button>
+                            <select id="pair-select" class="flex-1 p-4 bg-slate-900 rounded-xl font-bold text-[10px] border border-slate-700 outline-none uppercase">
                                 {pair_options}
                             </select>
-                            <button onclick="manualSend()" class="w-full p-2 bg-yellow-500 text-black font-bold text-[10px] rounded-lg uppercase">Send Signal</button>
                         </div>
+                        <button id="gen-btn" onclick="manualGenerate()" class="w-full p-4 bg-yellow-500 text-black font-bold text-[12px] rounded-xl uppercase">Generate Signal</button>
                     </div>
                 </div>
 
@@ -187,6 +181,8 @@ async def main_ui():
         </nav>
 
         <script>
+            let isTimerRunning = false;
+
             async function doLogin(role) {{
                 if(role === 'PREMIUM') {{
                     const key = document.getElementById('key-input').value;
@@ -207,35 +203,67 @@ async def main_ui():
                 const res = await fetch('/api/toggle_auto');
                 const d = await res.json();
                 const b = document.getElementById('auto-btn');
-                b.innerText = d.active ? "🚀 AUTO SCAN: ON" : "🚀 AUTO SCAN: OFF";
+                const genBtn = document.getElementById('gen-btn');
+                
+                b.innerText = d.active ? "🚀 AUTO: ON" : "🚀 AUTO: OFF";
                 b.style.background = d.active ? "#16a34a" : "#1e293b";
+                
+                if(d.active) {{
+                    genBtn.innerText = "Auto Running...";
+                    genBtn.classList.add('disabled-btn');
+                    genBtn.disabled = true;
+                }} else {{
+                    if(!isTimerRunning) {{
+                        genBtn.innerText = "Generate Signal";
+                        genBtn.classList.remove('disabled-btn');
+                        genBtn.disabled = false;
+                    }}
+                }}
             }}
 
-            async function toggleTG() {{
-                await fetch('/api/toggle_tg');
-            }}
-
-            async function manualSend() {{
+            async function manualGenerate() {{
+                if(isTimerRunning) return;
+                
                 const p = document.getElementById('pair-select').value;
                 await fetch(`/api/manual?pair=${{p}}`);
-                alert('Request sent for ' + p);
+                
+                startTimer(120); // ২ মিনিটের টাইমার (১২০ সেকেন্ড)
             }}
 
-            async function record(type) {{
-                await fetch(`/api/record?type=${{type}}`);
-                updateStats();
+            function startTimer(seconds) {{
+                isTimerRunning = true;
+                const genBtn = document.getElementById('gen-btn');
+                genBtn.disabled = true;
+                genBtn.classList.add('disabled-btn');
+                
+                let timeLeft = seconds;
+                const timer = setInterval(() => {{
+                    const mins = Math.floor(timeLeft / 60);
+                    const secs = timeLeft % 60;
+                    genBtn.innerText = `Wait: ${{mins}}:${{secs < 10 ? '0' : ''}}${{secs}}`;
+                    timeLeft--;
+
+                    if (timeLeft < 0) {{
+                        clearInterval(timer);
+                        isTimerRunning = false;
+                        const autoActive = document.getElementById('auto-btn').innerText.includes('ON');
+                        if(!autoActive) {{
+                            genBtn.innerText = "Generate Signal";
+                            genBtn.classList.remove('disabled-btn');
+                            genBtn.disabled = false;
+                        }}
+                    }}
+                }}, 1000);
             }}
 
+            async function toggleTG() {{ await fetch('/api/toggle_tg'); }}
+            async function record(type) {{ await fetch(`/api/record?type=${{type}}`); updateStats(); }}
             async function saveConfig() {{
                 const token = document.getElementById('bot-token').value;
                 const chat = document.getElementById('chat-id').value;
                 await fetch(`/api/update_config?token=${{token}}&chat=${{chat}}`);
             }}
-
-            async function sendReport() {{
-                await fetch('/api/send_report');
-                alert('Session Report Sent to Telegram!');
-            }}
+            async function sendReport() {{ await fetch('/api/send_report'); alert('Report Sent!'); }}
 
             async function updateStats() {{
                 const r = await fetch('/api/get_state');
@@ -244,16 +272,9 @@ async def main_ui():
                 document.getElementById('p-loss').innerText = d.stats.loss;
                 document.getElementById('p-mtg').innerText = d.stats.mtg;
                 document.getElementById('p-ref').innerText = d.stats.refund || 0;
-                
                 if(d.current_ss) document.getElementById('chart-box').innerHTML = `<img src="data:image/png;base64,${{d.current_ss}}" class="w-full rounded-lg">`;
-                
                 const hList = document.getElementById('hist-list');
-                hList.innerHTML = d.history.map(h => `
-                    <div class="flex justify-between border-b border-slate-800 pb-2">
-                        <span><b>${{h.pair}}</b> (${{h.dir}})</span>
-                        <span class="text-blue-500">${{h.time}}</span>
-                    </div>
-                `).join('');
+                hList.innerHTML = d.history.map(h => `<div class="flex justify-between border-b border-slate-800 pb-2"><span><b>${{h.pair}}</b> (${{h.dir}})</span><span class="text-blue-500">${{h.time}}</span></div>`).join('');
             }}
             setInterval(updateStats, 5000);
         </script>
@@ -285,7 +306,6 @@ async def manual_signal(pair: str):
 async def record_stat(type: str):
     if type in state["stats"]: 
         state["stats"][type] += 1
-        # টেলিগ্রামে সরাসরি রেজাল্ট পাঠানো
         if state["telegram_enabled"] and state["bot_token"]:
             bot = Bot(token=state["bot_token"])
             msg = f"📊 <b>SIGNAL RESULT</b>\n\nTYPE: {type.upper()}\nWIN: {state['stats']['win']} | LOSS: {state['stats']['loss']}\nMTG: {state['stats']['mtg']}"
