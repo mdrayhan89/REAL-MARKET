@@ -22,133 +22,71 @@ state = {
     "stats": {"win": 0, "loss": 0, "mtg": 0, "refund": 0},
     "current_ss": "",
     "history": [],
-    "last_pair": "EURUSD",
     "user_role": "FREE USER"
 }
 
 def get_signal_logic(pair):
-    # UTC +6 (Bangladesh Time)
+    # Bangladesh Time (UTC+6)
     now = datetime.datetime.utcnow() + datetime.timedelta(hours=6)
     signal_time = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
-    
     accuracy = 96 + (now.minute % 4) 
-    direction = "CALL" if (now.minute + len(pair)) % 2 == 0 else "PUT"
+    direction = "CALL ⬆️" if (now.minute + len(pair)) % 2 == 0 else "PUT ⬇️"
     strategies = ["EMA Cross", "Price Action", "Bollinger Break", "Support Zone", "RSI Reverse"]
     strat = strategies[now.minute % 5]
     return direction, accuracy, strat, signal_time
 
 async def send_signal_task(pair):
     direction, accuracy, strategy, signal_time = get_signal_logic(pair)
-    state["last_pair"] = pair
     ss_url = f"https://dark-live-ss.onrender.com/?Pair={pair.lower()}"
     
-    # Store for Report
-    state["history"].append({"time": signal_time, "pair": pair, "dir": direction})
+    # Update History
+    state["history"].insert(0, {"pair": pair, "time": signal_time, "dir": direction, "acc": accuracy})
     
     async with async_playwright() as p:
         browser = None
-        current_price = "N/A"
         try:
-            # SS Fix: Optimized for Render/Linux
+            # Optimized for Render/Linux
             browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process'])
             context = await browser.new_context(viewport={'width': 1000, 'height': 600})
             page = await context.new_page()
             
-            await page.goto(ss_url, wait_until="networkidle", timeout=90000)
-            await asyncio.sleep(8) 
-
-            # Price Fetching from Page
-            try:
-                current_price = await page.evaluate("() => document.body.innerText.match(/[0-9]+\.[0-9]+/)[0]")
-            except:
-                current_price = "N/A"
-
+            await page.goto(ss_url, timeout=90000, wait_until="networkidle")
+            await asyncio.sleep(7) # Wait for chart to load
+            
             ss_bytes = await page.screenshot(type='png')
             state["current_ss"] = base64.b64encode(ss_bytes).decode('utf-8')
             
             if state["telegram_enabled"] and state["bot_token"]:
                 bot = Bot(token=state["bot_token"])
-                # Your requested Signal Output
-                signal_msg = (
-                    f"╔═━━━━━ ◥◣◆◢◤ ━━━━━═╗\n"
-                    f"            PAIR        ➜ {pair}\n"
-                    f"            TIME       ➜ {signal_time}\n"
-                    f"            EXPIRE    ➜  M1\n"
-                    f"            DIRECTION ➜ {direction}\n"
-                    f"            PRICE     ➜ {current_price}\n"
-                    f"╚═━━━━━ ◢◤◆◥◣ ━━━━━═╝\n\n"
-                    f"📩 CONTRACT HERE : @mdrayhan85\n"
-                    f"🚀 SIGNAL SEND SUCCESSFULLY"
+                # Updated Design as per your screenshot
+                caption = (
+                    f"🔥 <b>DARK-X PRO SIGNAL</b> 🔥\n\n"
+                    f"📊 <b>PAIR:</b> {pair}\n"
+                    f"⏰ <b>TIME:</b> {signal_time}\n"
+                    f"💎 <b>DIR:</b> {direction}\n"
+                    f"✅ <b>ACC:</b> {accuracy}%"
                 )
-                await bot.send_photo(chat_id=state["chat_id"], photo=ss_bytes, caption=signal_msg, parse_mode=ParseMode.HTML)
-        except Exception as e:
-            print(f"SS Error: {e}")
+                await bot.send_photo(chat_id=state["chat_id"], photo=ss_bytes, caption=caption, parse_mode=ParseMode.HTML)
+        except Exception as e: 
+            print(f"Playwright Error: {e}")
+            if state["telegram_enabled"] and state["bot_token"]:
+                bot = Bot(token=state["bot_token"])
+                text_msg = f"🔥 <b>DARK-X PRO SIGNAL (Text Only)</b> 🔥\n\n📊 PAIR: {pair}\n⏰ TIME: {signal_time}\n💎 DIR: {direction}\n✅ ACC: {accuracy}%"
+                await bot.send_message(chat_id=state["chat_id"], text=text_msg, parse_mode=ParseMode.HTML)
         finally:
             if browser: await browser.close()
 
-@app.get("/api/record")
-async def record_stat(type: str):
-    t = type.lower()
-    if t in state["stats"]: 
-        state["stats"][t] += 1
-        if state["telegram_enabled"] and state["bot_token"]:
-            bot = Bot(token=state["bot_token"])
-            now = datetime.datetime.utcnow() + datetime.timedelta(hours=6)
-            win_count = state["stats"]["win"]
-            loss_count = state["stats"]["loss"]
-            total = win_count + loss_count
-            acc = (win_count/total*100) if total > 0 else 100
-            
-            # Your requested Result Output
-            res_msg = (
-                f"========== 𝗥𝗘𝗦𝗨𝗟𝗧 ===========\n\n"
-                f"╔═━━━━━ ◥◣◆◢◤ ━━━━━═╗\n"
-                f"                 {state['last_pair']} ┃  {now.strftime('%H:%M')}\n"
-                f"╚═━━━━━ ◢◤◆◥◣ ━━━━━═╝\n"
-                f"       {t.upper()} {'✅' if t=='win' else '❌'}\n"
-                f"╔═━━━━━ ◥◣◆◢◤ ━━━━━═╗\n"
-                f"           Win: {win_count} | ️Loss: {loss_count}\n"
-                f"           Current Pair: {win_count}x{loss_count}⋅({acc:.0f}%)\n"
-                f"╚═━━━━━ ◢◤◆◥◣ ━━━━━═╝\n\n"
-                f"🔗 TELEGRAM CLICK HERE\n"
-                f"✅ RESULT SEND SUCCESSFULLY"
-            )
-            asyncio.create_task(bot.send_message(state["chat_id"], res_msg, parse_mode=ParseMode.HTML))
-    return {"ok": True}
+async def auto_scan_loop():
+    while True:
+        if state["auto_scan_active"]:
+            pair = random.choice(ALL_PAIRS)
+            await send_signal_task(pair)
+            await asyncio.sleep(120)
+        else:
+            await asyncio.sleep(5)
 
-@app.get("/api/final_report")
-async def final_report():
-    if state["telegram_enabled"] and state["bot_token"]:
-        bot = Bot(token=state["bot_token"])
-        now = datetime.datetime.utcnow() + datetime.timedelta(hours=6)
-        s = state["stats"]
-        total = s['win'] + s['loss']
-        acc = (s['win']/total*100) if total > 0 else 0
-        
-        history_text = ""
-        for h in state["history"][-10:]:
-            history_text += f"〄 {h['time']} - {h['pair']} - {h['dir']}\n"
-
-        # Your requested Partial/Final Report Output
-        report = (
-            f"=========== 𝗣𝗔𝗥𝗧𝗜𝗔𝗟 ============\n\n"
-            f"━━━━━━━━━・━━━━━━━━━\n"
-            f"                  - {now.strftime('%d.%m.%Y')}\n"
-            f"━━━━━━━━━・━━━━━━━━━\n"
-            f"                  TOTAL : {total}\n"
-            f"━━━━━━━━━・━━━━━━━━━\n"
-            f"                  REAL-MARKET\n"
-            f"━━━━━━━━━・━━━━━━━━━\n"
-            f"{history_text}"
-            f"━━━━━━━━━・━━━━━━━━━\n"
-            f" 🧩 PLACER : {s['win']} x {s['loss']} ⋅◈⋅ ({acc:.0f}%)\n"
-            f"━━━━━━━━━・━━━━━━━━━\n"
-            f"🏆 WIN : {s['win']} ┃ LOSS : {s['loss']} ┃ ⋅◈⋅ ({acc:.0f}%)\n"
-            f"━━━━━━━━━・━━━━━━━━━\n\n"
-            f"✅ PARTIAL SEND SUCCESSFULLY"
-        )
-        asyncio.create_task(bot.send_message(state["chat_id"], report, parse_mode=ParseMode.HTML))
-    return {"ok": True}
+@app.on_event("startup")
+async def startup_event(): asyncio.create_task(auto_scan_loop())
 
 @app.get("/", response_class=HTMLResponse)
 async def main_ui():
@@ -163,9 +101,16 @@ async def main_ui():
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
         <style>
             body {{ background: #0b0e14; color: #fff; font-family: sans-serif; }}
-            .glow-card {{ background: #151a21; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; margin-bottom: 15px; }}
-            .btn-action {{ background: #2563eb; color: white; font-weight: bold; padding: 12px; border-radius: 8px; width: 100%; font-size: 11px; }}
+            .glow-card {{ background: #151a21; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; margin-bottom: 15px; box-shadow: 0 0 10px rgba(0,0,0,0.5); }}
             .hidden {{ display: none; }}
+            .btn-action {{ background: #2563eb; color: white; font-weight: bold; padding: 12px; border-radius: 8px; width: 100%; font-size: 11px; }}
+            .switch {{ position: relative; display: inline-block; width: 50px; height: 24px; }}
+            .switch input {{ opacity: 0; width: 0; height: 0; }}
+            .slider {{ position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #334155; transition: .4s; border-radius: 24px; }}
+            .slider:before {{ position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }}
+            input:checked + .slider {{ background-color: #2563eb; }}
+            input:checked + .slider:before {{ transform: translateX(26px); }}
+            .disabled-btn {{ background: #1e293b !important; color: #64748b !important; cursor: not-allowed; }}
         </style>
     </head>
     <body class="pb-24 p-4">
@@ -194,7 +139,7 @@ async def main_ui():
                 <div class="glow-card">
                     <div id="chart-box" class="w-full aspect-video bg-black rounded-lg flex items-center justify-center border border-slate-800 text-[10px] text-slate-700 italic">Live Preview Area</div>
                 </div>
-                <div class="glow-card grid grid-cols-2 gap-3">
+                <div class="glow-card grid grid-cols-2 gap-3 mb-3">
                     <button onclick="record('win')" class="btn-action">✓ WIN</button>
                     <button onclick="record('loss')" class="btn-action">✗ LOSS</button>
                     <button onclick="record('mtg')" class="btn-action">⇄ MTG</button>
@@ -204,10 +149,15 @@ async def main_ui():
             </div>
 
             <div id="history-tab" class="tab-page hidden">
-                <div class="glow-card"><h3 class="text-blue-500 font-bold mb-4 text-xs uppercase">Signal History</h3><div id="hist-list" class="space-y-3 text-[11px]"></div></div>
+                <div class="glow-card">
+                    <h3 class="text-blue-500 font-bold mb-4 text-xs uppercase">Signal History</h3>
+                    <div id="hist-list" class="space-y-3 text-[11px]"></div>
+                </div>
             </div>
+
             <div id="profile-tab" class="tab-page hidden text-center py-10">
-                <h2 class="font-bold text-xl uppercase">Dark-X-Rayhan</h2>
+                <div class="w-20 h-20 bg-blue-600 rounded-full mx-auto mb-4 flex items-center justify-center text-3xl font-bold">R</div>
+                <h2 class="font-bold text-xl uppercase tracking-tighter">Dark-X-Rayhan</h2>
                 <div id="display-role" class="text-blue-500 font-bold text-[10px] mb-8 uppercase tracking-widest">FREE USER</div>
                 <div class="grid grid-cols-4 gap-2 px-1">
                     <div class="bg-slate-800 p-2 rounded-lg"><p class="text-lg font-black" id="p-win">0</p><p class="text-[8px]">WIN</p></div>
@@ -216,10 +166,18 @@ async def main_ui():
                     <div class="bg-slate-800 p-2 rounded-lg"><p class="text-lg font-black" id="p-ref">0</p><p class="text-[8px]">REF</p></div>
                 </div>
             </div>
+
             <div id="settings-tab" class="tab-page hidden">
                 <div class="glow-card">
-                    <input id="bot-token" type="text" class="w-full p-4 bg-slate-900 border border-slate-800 rounded-xl mb-4 text-xs" value="{state['bot_token']}" onchange="saveConfig()">
-                    <input id="chat-id" type="text" class="w-full p-4 bg-slate-900 border border-slate-800 rounded-xl text-xs" value="{state['chat_id']}" onchange="saveConfig()">
+                    <div class="flex justify-between items-center mb-6">
+                        <span class="text-xs font-bold uppercase">Telegram Bot (ON/OFF)</span>
+                        <label class="switch">
+                            <input type="checkbox" id="tg-check" checked onclick="toggleTG()">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <input id="bot-token" type="text" class="w-full p-4 bg-slate-900 border border-slate-800 rounded-xl mb-4 text-xs" placeholder="Bot Token" onchange="saveConfig()" value="{state['bot_token']}">
+                    <input id="chat-id" type="text" class="w-full p-4 bg-slate-900 border border-slate-800 rounded-xl text-xs" placeholder="Chat ID" onchange="saveConfig()" value="{state['chat_id']}">
                 </div>
             </div>
         </div>
@@ -232,41 +190,72 @@ async def main_ui():
         </nav>
 
         <script>
-            async function saveConfig() {{
-                const token = document.getElementById('bot-token').value;
-                const chat = document.getElementById('chat-id').value;
-                await fetch(`/api/update_config?token=${{token}}&chat=${{chat}}`);
-            }}
-            async function record(type) {{ await fetch(`/api/record?type=${{type}}`); updateStats(); }}
-            async function sendReport() {{ await fetch('/api/final_report'); }}
+            let isTimerRunning = false;
             async function doLogin(role) {{
-                if(role === 'PREMIUM' && document.getElementById('key-input').value !== 'DARK-X-RAYHAN') return alert('Invalid Key!');
+                if(role === 'PREMIUM') {{
+                    const key = document.getElementById('key-input').value;
+                    if(key !== 'DARK-X-RAYHAN') return alert('Invalid Key!');
+                    document.getElementById('display-role').innerText = '💎 PREMIUM USER';
+                }}
                 document.getElementById('auth-screen').classList.add('hidden');
                 document.getElementById('main-content').classList.remove('hidden');
-                document.getElementById('display-role').innerText = role === 'PREMIUM' ? '💎 PREMIUM USER' : '👤 FREE USER';
                 await fetch(`/api/set_role?role=${{role}}`);
             }}
             function switchTab(t) {{
                 document.querySelectorAll('.tab-page').forEach(p => p.classList.add('hidden'));
                 document.getElementById(t + '-tab').classList.remove('hidden');
             }}
+            async function toggleTG() {{ await fetch('/api/toggle_tg'); }}
             async function toggleAuto() {{
                 const res = await fetch('/api/toggle_auto');
                 const d = await res.json();
-                document.getElementById('auto-btn').innerText = d.active ? "🚀 AUTO: ON" : "🚀 AUTO: OFF";
+                const b = document.getElementById('auto-btn');
+                b.innerText = d.active ? "🚀 AUTO: ON" : "🚀 AUTO: OFF";
+                b.style.background = d.active ? "#16a34a" : "#1e293b";
             }}
             async function manualGenerate() {{
+                if(isTimerRunning) return;
                 const p = document.getElementById('pair-select').value;
                 await fetch(`/api/manual?pair=${{p}}`);
+                startTimer(120);
             }}
+            function startTimer(seconds) {{
+                isTimerRunning = true;
+                const genBtn = document.getElementById('gen-btn');
+                genBtn.disabled = true;
+                genBtn.classList.add('disabled-btn');
+                let timeLeft = seconds;
+                const timer = setInterval(() => {{
+                    const mins = Math.floor(timeLeft / 60);
+                    const secs = timeLeft % 60;
+                    genBtn.innerText = `Wait: ${{mins}}:${{secs < 10 ? '0' : ''}}${{secs}}`;
+                    timeLeft--;
+                    if (timeLeft < 0) {{
+                        clearInterval(timer);
+                        isTimerRunning = false;
+                        genBtn.innerText = "Generate Signal";
+                        genBtn.classList.remove('disabled-btn');
+                        genBtn.disabled = false;
+                    }}
+                }}, 1000);
+            }}
+            async function saveConfig() {{
+                const token = document.getElementById('bot-token').value;
+                const chat = document.getElementById('chat-id').value;
+                await fetch(`/api/update_config?token=${{token}}&chat=${{chat}}`);
+            }}
+            async function record(t) {{ await fetch(`/api/record?type=${{t}}`); }}
+            async function sendReport() {{ await fetch('/api/send_report'); }}
             async function updateStats() {{
                 const r = await fetch('/api/get_state');
                 const d = await r.json();
                 document.getElementById('p-win').innerText = d.stats.win;
                 document.getElementById('p-loss').innerText = d.stats.loss;
                 document.getElementById('p-mtg').innerText = d.stats.mtg;
-                document.getElementById('p-ref').innerText = d.stats.refund;
+                document.getElementById('p-ref').innerText = d.stats.refund || 0;
                 if(d.current_ss) document.getElementById('chart-box').innerHTML = `<img src="data:image/png;base64,${{d.current_ss}}" class="w-full rounded-lg">`;
+                const hList = document.getElementById('hist-list');
+                hList.innerHTML = d.history.map(h => `<div class="flex justify-between border-b border-slate-800 pb-2"><span><b>${{h.pair}}</b> (${{h.dir}})</span><span class="text-blue-500">${{h.time}}</span></div>`).join('');
             }}
             setInterval(updateStats, 5000);
         </script>
@@ -274,27 +263,34 @@ async def main_ui():
     </html>
     """
 
-# API handlers
-@app.get("/api/update_config")
-async def update_config(token: str, chat: str): state["bot_token"], state["chat_id"] = token, chat; return {"ok": True}
 @app.get("/api/set_role")
 async def set_role(role: str): state["user_role"] = role; return {"ok": True}
 @app.get("/api/toggle_auto")
 async def toggle_auto(): state["auto_scan_active"] = not state["auto_scan_active"]; return {"active": state["auto_scan_active"]}
+@app.get("/api/toggle_tg")
+async def toggle_tg(): state["telegram_enabled"] = not state["telegram_enabled"]; return {"enabled": state["telegram_enabled"]}
 @app.get("/api/manual")
 async def manual_signal(pair: str): asyncio.create_task(send_signal_task(pair.upper())); return {"ok": True}
+@app.get("/api/record")
+async def record_stat(type: str):
+    if type in state["stats"]: 
+        state["stats"][type] += 1
+        if state["telegram_enabled"] and state["bot_token"]:
+            bot = Bot(token=state["bot_token"])
+            msg = f"📊 <b>SIGNAL RESULT</b>\n\nTYPE: {type.upper()}\nWIN: {state['stats']['win']} | LOSS: {state['stats']['loss']}"
+            asyncio.create_task(bot.send_message(state["chat_id"], msg, parse_mode=ParseMode.HTML))
+    return {"ok": True}
+@app.get("/api/send_report")
+async def send_report():
+    if state["telegram_enabled"] and state["bot_token"]:
+        bot = Bot(token=state["bot_token"])
+        report = f"🏆 <b>FINAL SESSION REPORT</b>\n\n✅ WIN: {state['stats']['win']}\n❌ LOSS: {state['stats']['loss']}\n\nPOWERED BY DARK-X-PRO"
+        asyncio.create_task(bot.send_message(state["chat_id"], report, parse_mode=ParseMode.HTML))
+    return {"ok": True}
 @app.get("/api/get_state")
 async def get_state(): return state
-
-async def auto_scan_loop():
-    while True:
-        if state["auto_scan_active"]:
-            await send_signal_task(random.choice(ALL_PAIRS))
-            await asyncio.sleep(120)
-        else: await asyncio.sleep(5)
-
-@app.on_event("startup")
-async def startup_event(): asyncio.create_task(auto_scan_loop())
+@app.get("/api/update_config")
+async def update_config(token: str, chat: str): state["bot_token"], state["chat_id"] = token, chat; return {"ok": True}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=10000)
