@@ -42,12 +42,13 @@ async def send_signal_task(pair):
     
     async with async_playwright() as p:
         try:
+            # স্ক্রিনশট যাতে ফেইল না করে সেজন্য নির্দিষ্ট অপশন যোগ করা হয়েছে
             browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'])
             page = await browser.new_page()
             
-            # সিগন্যাল পাওয়ার সাথে সাথে পেজে গিয়ে networkidle হওয়ার জন্য অপেক্ষা
+            # পেজ পুরোপুরি লোড হওয়ার জন্য 'networkidle' ব্যবহার করা হয়েছে
             await page.goto(ss_url, wait_until="networkidle", timeout=60000)
-            await asyncio.sleep(3) 
+            await asyncio.sleep(4) # চার্ট রেন্ডার হওয়ার জন্য অতিরিক্ত সময়
             
             ss_bytes = await page.screenshot()
             state["current_ss"] = base64.b64encode(ss_bytes).decode('utf-8')
@@ -57,7 +58,7 @@ async def send_signal_task(pair):
                 caption = (
                     f"🔥 <b>DARK-X PRO SIGNAL</b> 🔥\n\n"
                     f"📊 PAIR: {pair}\n"
-                    f"⏰ TIME: {signal_time}\n"
+                    f"⏰ TIME: {signal_time} (Next Candle)\n"
                     f"🎯 STRATEGY: {strategy}\n"
                     f"💎 DIRECTION: {direction}\n"
                     f"✅ ACCURACY: {accuracy}%"
@@ -65,10 +66,10 @@ async def send_signal_task(pair):
                 await bot.send_photo(chat_id=state["chat_id"], photo=ss_bytes, caption=caption, parse_mode=ParseMode.HTML)
             await browser.close()
         except Exception as e: 
-            print(f"Error: {e}")
+            print(f"Playwright Error: {e}")
             if state["telegram_enabled"] and state["bot_token"]:
                 bot = Bot(token=state["bot_token"])
-                text_msg = f"🔥 <b>DARK-X PRO SIGNAL (Text Only)</b> 🔥\n\n📊 PAIR: {pair}\n⏰ TIME: {signal_time}\n💎 DIR: {direction}\n✅ ACC: {accuracy}%"
+                text_msg = f"🔥 <b>DARK-X PRO (Text Only)</b> 🔥\n\n📊 PAIR: {pair}\n⏰ TIME: {signal_time}\n💎 DIR: {direction}\n✅ ACC: {accuracy}%"
                 await bot.send_message(chat_id=state["chat_id"], text=text_msg, parse_mode=ParseMode.HTML)
 
 async def auto_scan_loop():
@@ -105,6 +106,7 @@ async def main_ui():
             .slider:before {{ position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }}
             input:checked + .slider {{ background-color: #2563eb; }}
             input:checked + .slider:before {{ transform: translateX(26px); }}
+            .disabled-btn {{ background: #1e293b !important; color: #64748b !important; cursor: not-allowed; }}
         </style>
     </head>
     <body class="pb-24 p-4">
@@ -133,7 +135,7 @@ async def main_ui():
                 <div class="glow-card">
                     <div id="chart-box" class="w-full aspect-video bg-black rounded-lg flex items-center justify-center border border-slate-800 text-[10px] text-slate-700 italic">Live Preview Area</div>
                 </div>
-                <div class="glow-card grid grid-cols-2 gap-3">
+                <div class="glow-card grid grid-cols-2 gap-3 mb-3">
                     <button onclick="record('win')" class="btn-action">✓ WIN</button>
                     <button onclick="record('loss')" class="btn-action">✗ LOSS</button>
                     <button onclick="record('mtg')" class="btn-action">⇄ MTG</button>
@@ -143,16 +145,9 @@ async def main_ui():
             </div>
 
             <div id="history-tab" class="tab-page hidden">
-                <div class="glow-card"><h3 class="text-blue-500 font-bold mb-4 text-xs uppercase">Signal History</h3><div id="hist-list" class="space-y-3 text-[11px]"></div></div>
-            </div>
-
-            <div id="settings-tab" class="tab-page hidden">
                 <div class="glow-card">
-                    <div class="flex justify-between items-center mb-6"><span class="text-xs font-bold uppercase">Telegram Bot (ON/OFF)</span>
-                        <label class="switch"><input type="checkbox" id="tg-check" checked onclick="toggleTG()"><span class="slider"></span></label>
-                    </div>
-                    <input id="bot-token" type="text" class="w-full p-4 bg-slate-900 border border-slate-800 rounded-xl mb-4 text-xs" placeholder="Bot Token" value="{state['bot_token']}" onchange="saveConfig()">
-                    <input id="chat-id" type="text" class="w-full p-4 bg-slate-900 border border-slate-800 rounded-xl text-xs" placeholder="Chat ID" value="{state['chat_id']}" onchange="saveConfig()">
+                    <h3 class="text-blue-500 font-bold mb-4 text-xs uppercase">Signal History</h3>
+                    <div id="hist-list" class="space-y-3 text-[11px]"></div>
                 </div>
             </div>
 
@@ -167,6 +162,17 @@ async def main_ui():
                     <div class="bg-slate-800 p-2 rounded-lg"><p class="text-lg font-black" id="p-ref">0</p><p class="text-[8px]">REF</p></div>
                 </div>
             </div>
+
+            <div id="settings-tab" class="tab-page hidden">
+                <div class="glow-card">
+                    <div class="flex justify-between items-center mb-6">
+                        <span class="text-xs font-bold uppercase">Telegram Bot (ON/OFF)</span>
+                        <label class="switch"><input type="checkbox" id="tg-check" checked onclick="toggleTG()"><span class="slider"></span></label>
+                    </div>
+                    <input id="bot-token" type="text" class="w-full p-4 bg-slate-900 border border-slate-800 rounded-xl mb-4 text-xs" placeholder="Bot Token" value="{state['bot_token']}" onchange="saveConfig()">
+                    <input id="chat-id" type="text" class="w-full p-4 bg-slate-900 border border-slate-800 rounded-xl text-xs" placeholder="Chat ID" value="{state['chat_id']}" onchange="saveConfig()">
+                </div>
+            </div>
         </div>
 
         <nav class="fixed bottom-0 left-0 right-0 bg-[#151a21] border-t border-slate-800 flex justify-around p-3 z-[100]">
@@ -177,49 +183,86 @@ async def main_ui():
         </nav>
 
         <script>
+            let isTimerRunning = false;
+            
+            // টোকেন এবং চ্যাট আইডি সেভ করার জন্য ফিক্সড ফাংশন
             async function saveConfig() {{
                 const token = document.getElementById('bot-token').value;
                 const chat = document.getElementById('chat-id').value;
                 await fetch(`/api/update_config?token=${{token}}&chat=${{chat}}`);
             }}
+
             async function doLogin(role) {{
                 if(role === 'PREMIUM' && document.getElementById('key-input').value !== 'DARK-X-RAYHAN') return alert('Invalid Key!');
                 document.getElementById('auth-screen').classList.add('hidden');
                 document.getElementById('main-content').classList.remove('hidden');
                 document.getElementById('display-role').innerText = role === 'PREMIUM' ? '💎 PREMIUM USER' : '👤 FREE USER';
-                fetch(`/api/set_role?role=${{role}}`);
+                await fetch(`/api/set_role?role=${{role}}`);
             }}
+
             function switchTab(t) {{
                 document.querySelectorAll('.tab-page').forEach(p => p.classList.add('hidden'));
                 document.getElementById(t + '-tab').classList.remove('hidden');
             }}
+
             async function toggleAuto() {{
                 const res = await fetch('/api/toggle_auto');
                 const d = await res.json();
-                document.getElementById('auto-btn').innerText = d.active ? "🚀 AUTO: ON" : "🚀 AUTO: OFF";
+                const b = document.getElementById('auto-btn');
+                b.innerText = d.active ? "🚀 AUTO: ON" : "🚀 AUTO: OFF";
+                b.style.background = d.active ? "#16a34a" : "#1e293b";
             }}
+
             async function toggleTG() {{ fetch('/api/toggle_tg'); }}
+
             async function manualGenerate() {{
+                if(isTimerRunning) return;
                 const p = document.getElementById('pair-select').value;
-                fetch(`/api/manual?pair=${{p}}`);
+                await fetch(`/api/manual?pair=${{p}}`);
+                startTimer(120);
             }}
-            async function record(type) {{ fetch(`/api/record?type=${{type}}`); }}
-            async function sendReport() {{ fetch('/api/send_report'); }}
-            async function updateUI() {{
+
+            function startTimer(seconds) {{
+                isTimerRunning = true;
+                const genBtn = document.getElementById('gen-btn');
+                genBtn.disabled = true;
+                genBtn.classList.add('disabled-btn');
+                let timeLeft = seconds;
+                const timer = setInterval(() => {{
+                    const mins = Math.floor(timeLeft / 60);
+                    const secs = timeLeft % 60;
+                    genBtn.innerText = `Wait: ${{mins}}:${{secs < 10 ? '0' : ''}}${{secs}}`;
+                    timeLeft--;
+                    if (timeLeft < 0) {{
+                        clearInterval(timer);
+                        isTimerRunning = false;
+                        genBtn.innerText = "Generate Signal";
+                        genBtn.classList.remove('disabled-btn');
+                        genBtn.disabled = false;
+                    }}
+                }}, 1000);
+            }}
+
+            async function updateStats() {{
                 const r = await fetch('/api/get_state');
                 const d = await r.json();
-                if(d.current_ss) document.getElementById('chart-box').innerHTML = `<img src="data:image/png;base64,${{d.current_ss}}" class="w-full rounded-lg">`;
                 document.getElementById('p-win').innerText = d.stats.win;
                 document.getElementById('p-loss').innerText = d.stats.loss;
                 document.getElementById('p-mtg').innerText = d.stats.mtg;
-                document.getElementById('p-ref').innerText = d.stats.refund;
+                document.getElementById('p-ref').innerText = d.stats.refund || 0;
+                if(d.current_ss) document.getElementById('chart-box').innerHTML = `<img src="data:image/png;base64,${{d.current_ss}}" class="w-full rounded-lg">`;
                 document.getElementById('hist-list').innerHTML = d.history.map(h => `<div class="flex justify-between border-b border-slate-800 pb-2"><span><b>${{h.pair}}</b> (${{h.dir}})</span><span class="text-blue-500">${{h.time}}</span></div>`).join('');
             }}
-            setInterval(updateUI, 5000);
+            setInterval(updateStats, 5000);
         </script>
     </body>
     </html>
     """
+
+@app.get("/api/update_config")
+async def update_config(token: str, chat: str):
+    state["bot_token"], state["chat_id"] = token, chat
+    return {"ok": True}
 
 @app.get("/api/set_role")
 async def set_role(role: str): state["user_role"] = role; return {"ok": True}
@@ -228,10 +271,7 @@ async def set_role(role: str): state["user_role"] = role; return {"ok": True}
 async def toggle_auto(): state["auto_scan_active"] = not state["auto_scan_active"]; return {"active": state["auto_scan_active"]}
 
 @app.get("/api/toggle_tg")
-async def toggle_tg(): state["telegram_enabled"] = not state["telegram_enabled"]; return {"ok": True}
-
-@app.get("/api/update_config")
-async def update_config(token: str, chat: str): state["bot_token"] = token; state["chat_id"] = chat; return {"ok": True}
+async def toggle_tg(): state["telegram_enabled"] = not state["telegram_enabled"]; return {"enabled": state["telegram_enabled"]}
 
 @app.get("/api/manual")
 async def manual_signal(pair: str): asyncio.create_task(send_signal_task(pair.upper())); return {"ok": True}
@@ -250,7 +290,7 @@ async def record_stat(type: str):
 async def send_report():
     if state["telegram_enabled"] and state["bot_token"]:
         bot = Bot(token=state["bot_token"])
-        report = f"🏆 <b>SESSION REPORT</b>\n\n✅ WIN: {state['stats']['win']}\n❌ LOSS: {state['stats']['loss']}"
+        report = f"🏆 <b>FINAL SESSION REPORT</b>\n\n✅ WIN: {state['stats']['win']}\n❌ LOSS: {state['stats']['loss']}"
         asyncio.create_task(bot.send_message(state["chat_id"], report, parse_mode=ParseMode.HTML))
     return {"ok": True}
 
