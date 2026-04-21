@@ -3,6 +3,7 @@ import datetime
 import uvicorn
 import base64
 import random
+import os
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from telegram import Bot
@@ -28,14 +29,12 @@ state = {
 def get_signal_logic(pair):
     now = datetime.datetime.utcnow() + datetime.timedelta(hours=6)
     signal_time = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
-    # No Random: Fixed logic based on pair length/time
     direction = "PUT" if (now.minute + len(pair)) % 2 == 0 else "CALL"
     accuracy = "99%"
     return direction, accuracy, signal_time
 
 async def send_signal_task(pair):
     direction, accuracy, signal_time = get_signal_logic(pair)
-    # আপনার দেওয়া API লিঙ্ক থেকেই SS নিবে
     ss_url = f"https://dark-live-ss.onrender.com/?Pair={pair.lower()}"
     
     state["history"].insert(0, {"pair": pair, "time": signal_time, "dir": direction, "acc": accuracy})
@@ -43,34 +42,41 @@ async def send_signal_task(pair):
     async with async_playwright() as p:
         browser = None
         try:
-            # SS Fix: Standard browser launch for Linux/Render stability
-            browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process'])
+            # Render/Linux এর জন্য লঞ্চ আর্গুমেন্ট ফিক্স
+            browser = await p.chromium.launch(headless=True, args=[
+                '--no-sandbox', 
+                '--disable-setuid-sandbox', 
+                '--disable-dev-shm-usage',
+                '--single-process'
+            ])
             context = await browser.new_context(viewport={'width': 1200, 'height': 800})
             page = await context.new_page()
             
-            await page.goto(ss_url, timeout=90000, wait_until="networkidle")
-            await asyncio.sleep(10) # Chart loading wait
+            # পেজ লোড হওয়া পর্যন্ত অপেক্ষা
+            await page.goto(ss_url, timeout=60000, wait_until="networkidle")
+            await asyncio.sleep(8) # চার্ট রেন্ডার হওয়ার সময়
             
             ss_bytes = await page.screenshot(type='png')
             state["current_ss"] = base64.b64encode(ss_bytes).decode('utf-8')
             
             if state["telegram_enabled"] and state["bot_token"]:
                 bot = Bot(token=state["bot_token"])
-                # আপনার দেওয়া হুবহু সিগন্যাল ডিজাইন
                 caption = (
                     f"╔═━━━━━ ◥◣◆◢◤ ━━━━━═╗\n"
-                    f"             PAIR        ➜ {pair}\n"
-                    f"             TIME       ➜ {signal_time}\n"
-                    f"             EXPIRE    ➜  M1\n"
-                    f"             DIRECTION ➜ {direction}\n"
-                    f"             PRICE     ➜ $N/A\n"
+                    f"              PAIR         ➜ {pair}\n"
+                    f"              TIME         ➜ {signal_time}\n"
+                    f"              EXPIRE     ➜  M1\n"
+                    f"              DIRECTION ➜ {direction}\n"
+                    f"              PRICE        ➜ $N/A\n"
                     f"╚═━━━━━ ◢◤◆◥◣ ━━━━━═╝\n\n"
-                    f" CONTRACT HERE : @mdrayhan85\n"
-                    f" SIGNAL SEND SUCCESSFULLY"
+                    f" CONTRACT HERE : @mdrayhan85\n"
+                    f" SIGNAL SEND SUCCESSFULLY"
                 )
+                # সরাসরি await ব্যবহার করা হয়েছে যাতে টেলিগ্রামে অবশ্যই যায়
                 await bot.send_photo(chat_id=state["chat_id"], photo=ss_bytes, caption=caption, parse_mode=ParseMode.HTML)
+                print(f"Signal sent for {pair}")
         except Exception as e:
-            print(f"Playwright Error: {e}")
+            print(f"Playwright/Telegram Error: {e}")
         finally:
             if browser: await browser.close()
 
@@ -84,11 +90,13 @@ async def auto_scan_loop():
             await asyncio.sleep(5)
 
 @app.on_event("startup")
-async def startup_event(): asyncio.create_task(auto_scan_loop())
+async def startup_event():
+    asyncio.create_task(auto_scan_loop())
 
 @app.get("/", response_class=HTMLResponse)
 async def main_ui():
     pair_options = "".join([f'<option value="{p}">{p}</option>' for p in ALL_PAIRS])
+    # এখানে আপনার আগের UI কোডটি থাকবে (অপরিবর্তিত)
     return f"""
     <!DOCTYPE html>
     <html>
@@ -253,6 +261,7 @@ async def main_ui():
     </html>
     """
 
+# API এন্ডপয়েন্টগুলো (অপরিবর্তিত)
 @app.get("/api/set_role")
 async def set_role(role: str): state["user_role"] = role; return {"ok": True}
 
@@ -272,19 +281,18 @@ async def record_stat(type: str):
         if state["telegram_enabled"] and state["bot_token"]:
             now = datetime.datetime.utcnow() + datetime.timedelta(hours=6)
             bot = Bot(token=state["bot_token"])
-            # আপনার রেজাল্ট ডিজাইন
             res_msg = (
                 f"========== 𝗥𝗘𝗦𝗨𝗟𝗧 ===========\n\n"
                 f"╔═━━━━━ ◥◣◆◢◤ ━━━━━═╗\n"
-                f"                 SIGNAL RESULT ┃  {now.strftime('%H:%M')}\n"
+                f"                  SIGNAL RESULT ┃  {now.strftime('%H:%M')}\n"
                 f"╚═━━━━━ ◢◤◆◥◣ ━━━━━═╝\n"
-                f"        {type.upper()} X \n"
+                f"         {type.upper()} X \n"
                 f"╔═━━━━━ ◥◣◆◢◤ ━━━━━═╗\n"
-                f"            Win: {state['stats']['win']} | ️Loss: {state['stats']['loss']}\n"
-                f"            Current Pair: 1x0⋅(100%)\n"
+                f"             Win: {state['stats']['win']} | Loss: {state['stats']['loss']}\n"
+                f"             Current Pair: 1x0⋅(100%)\n"
                 f"╚═━━━━━ ◢◤◆◥◣ ━━━━━═╝\n\n"
-                f" TELEGRAM CLICK HERE\n"
-                f" RESULT SEND SUCCESSFULLY"
+                f" TELEGRAM CLICK HERE\n"
+                f" RESULT SEND SUCCESSFULLY"
             )
             asyncio.create_task(bot.send_message(state["chat_id"], res_msg, parse_mode=ParseMode.HTML))
     return {"ok": True}
@@ -295,15 +303,14 @@ async def send_report():
         now = datetime.datetime.utcnow() + datetime.timedelta(hours=6)
         bot = Bot(token=state["bot_token"])
         total = state['stats']['win'] + state['stats']['loss']
-        # আপনার রিপোর্ট ডিজাইন
         report = (
             f"=========== 𝗣𝗔𝗥𝗧𝗜𝗔𝗟 ============️\n\n"
             f"━━━━━━━━━・━━━━━━━━━\n"
-            f"                   - {now.strftime('%d.%m.%Y')}\n"
+            f"                    - {now.strftime('%d.%m.%Y')}\n"
             f"━━━━━━━━━・━━━━━━━━━\n"
-            f"                   TOTAL : {total}\n"
+            f"                    TOTAL : {total}\n"
             f"━━━━━━━━━・━━━━━━━━━\n"
-            f"                  REAL-MARKET\n"
+            f"                   REAL-MARKET\n"
             f"━━━━━━━━━・━━━━━━━━━\n"
         )
         for h in state["history"][:4]:
@@ -311,14 +318,14 @@ async def send_report():
             
         report += (
             f"━━━━━━━━━・━━━━━━━━━\n"
-            f"                  OTC-MARKET\n"
+            f"                  OTC-MARKET\n"
             f"━━━━━━━━━・━━━━━━━━━\n"
             f"━━━━━━━━━・━━━━━━━━━\n"
-            f"  PLACER : {state['stats']['win']} x {state['stats']['loss']} ⋅◈⋅ (100%)\n"
+            f"  PLACER : {state['stats']['win']} x {state['stats']['loss']} ⋅◈⋅ (100%)\n"
             f"━━━━━━━━━・━━━━━━━━━\n"
-            f" WIN : {state['stats']['win']} ┃ LOSS : {state['stats']['loss']} ┃ ⋅◈⋅ (100%)\n"
+            f" WIN : {state['stats']['win']} ┃ LOSS : {state['stats']['loss']} ┃ ⋅◈⋅ (100%)\n"
             f"━━━━━━━━━・━━━━━━━━━\n\n"
-            f" PARTIAL SEND SUCCESSFULLY"
+            f" PARTIAL SEND SUCCESSFULLY"
         )
         asyncio.create_task(bot.send_message(state["chat_id"], report, parse_mode=ParseMode.HTML))
     return {"ok": True}
